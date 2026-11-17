@@ -82,3 +82,74 @@ export function floodThresholds(data) {
   }
   return thresholds;
 }
+
+// Conservative, local surface-water routing with a prescribed river boundary.
+// Each step limits total outflow to the donor's available water. Closed raster
+// edges retain water. Parameters are illustrative and are not calibrated.
+export function createFloodSequence(data, thresholds = floodThresholds(data)) {
+  const count = data.elevations.length;
+  const reservoir = new Uint8Array(count);
+  for (let i = 0; i < count; i++) reservoir[i] = thresholds[i] <= data.minLevel ? 1 : 0;
+  for (const index of data.riverSeeds) reservoir[index] = 1;
+  let depths = new Float32Array(count);
+  let next = new Float32Array(count);
+  const frameCount = Math.max(20, Math.min(161, Math.floor(32000000 / (count * 4))));
+  const frames = [];
+  const duration = 160;
+  const frameDuration = duration / (frameCount - 1);
+  const substeps = Math.ceil(frameDuration / .025);
+  const dt = frameDuration / substeps;
+  const neighbours = new Int32Array(4);
+  const rates = new Float64Array(4);
+  function setRiver(stage) {
+    for (let i = 0; i < count; i++) if (reservoir[i]) depths[i] = Math.max(0, stage - data.elevations[i]);
+  }
+  setRiver(data.minLevel);
+  frames.push(depths.slice());
+  for (let frame = 1; frame < frameCount; frame++) {
+    for (let step = 1; step <= substeps; step++) {
+      const progress = (frame - 1 + step / substeps) / (frameCount - 1);
+      const stage = data.minLevel + progress * (data.maxLevel - data.minLevel);
+      setRiver(stage);
+      next.set(depths);
+      for (let i = 0; i < count; i++) {
+        if (depths[i] <= 0) continue;
+        const col = i % data.width;
+        neighbours[0] = col > 0 ? i - 1 : -1;
+        neighbours[1] = col < data.width - 1 ? i + 1 : -1;
+        neighbours[2] = i >= data.width ? i - data.width : -1;
+        neighbours[3] = i < count - data.width ? i + data.width : -1;
+        const surface = data.elevations[i] + depths[i];
+        let total = 0;
+        for (let edge = 0; edge < 4; edge++) {
+          const j = neighbours[edge];
+          const head = j < 0 ? 0 : Math.max(0, surface - Math.max(data.elevations[i], data.elevations[j] + depths[j]));
+          rates[edge] = head ** 1.5;
+          total += rates[edge];
+        }
+        if (total === 0) continue;
+        const scale = Math.min(depths[i] / total, dt * 16 / data.cellSize);
+        for (let edge = 0; edge < 4; edge++) {
+          if (rates[edge] === 0) continue;
+          const flow = rates[edge] * scale;
+          next[i] -= flow;
+          next[neighbours[edge]] += flow;
+        }
+      }
+      [depths, next] = [next, depths];
+      setRiver(stage);
+    }
+    frames.push(depths.slice());
+  }
+  return { frames, minLevel: data.minLevel, maxLevel: data.maxLevel };
+}
+
+export function sampleFlood(sequence, level, output) {
+  const position = Math.max(0, Math.min(1, (level - sequence.minLevel) / (sequence.maxLevel - sequence.minLevel))) * (sequence.frames.length - 1);
+  const before = Math.floor(position), after = Math.min(before + 1, sequence.frames.length - 1);
+  const fraction = position - before;
+  for (let i = 0; i < output.length; i++) {
+    output[i] = sequence.frames[before][i] * (1 - fraction) + sequence.frames[after][i] * fraction;
+  }
+  return output;
+}

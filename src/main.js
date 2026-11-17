@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { makeDemo, validateDEM, floodThresholds } from './model.js';
+import { makeDemo, validateDEM, floodThresholds, sampleFlood } from './model.js';
 import './style.css';
 
 const $ = id => document.getElementById(id);
@@ -24,6 +24,7 @@ sun.position.set(-300, 600, 200); scene.add(sun);
 const terrainGroup = new THREE.Group(); scene.add(terrainGroup);
 const verticalScale = 8;
 let data, thresholds, waterMaterial, waterMesh, level = 2, playing = false, extent = 800, datum = 0;
+let floodSequence, waterDepths;
 let labelPositions = [];
 let lastTime = performance.now();
 
@@ -37,9 +38,27 @@ function clearTerrain() {
   }
 }
 
-function buildTerrain(nextData) {
+function prepareFlood(dem, thresholds) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL('./flood-worker.js', import.meta.url), { type: 'module' });
+    worker.onmessage = ({ data }) => {
+      worker.terminate();
+      if (data.error) reject(new Error(data.error));
+      else resolve(data.sequence);
+    };
+    worker.onerror = () => {
+      worker.terminate(); reject(new Error('Flood preparation failed. Reload to retry.'));
+    };
+    worker.postMessage({ dem, thresholds });
+  });
+}
+
+async function buildTerrain(nextData) {
+  $('data-message').textContent = 'Preparing the flood progression…';
   const nextThresholds = floodThresholds(nextData);
+  const nextSequence = await prepareFlood(nextData, nextThresholds);
   clearTerrain(); data = nextData; thresholds = nextThresholds;
+  floodSequence = nextSequence; waterDepths = new Float32Array(data.elevations.length);
   datum = Math.min(...data.elevations.slice(0, 1));
   for (const value of data.elevations) datum = Math.min(datum, value);
   const { width, height, cellSize, elevations } = data;
@@ -84,28 +103,19 @@ function buildTerrain(nextData) {
   const base = new THREE.Mesh(new THREE.BoxGeometry((width - 1) * cellSize, extent * .008, (height - 1) * cellSize), new THREE.MeshStandardMaterial({ color: '#6e7b60', roughness: 1 }));
   base.position.y = skirtBottom; terrainGroup.add(base);
 
-  // Independent raster-cell quads keep dry depressions masked until connected.
-  const waterPositions = [], openings = [];
-  const corners = [[0,0],[1,0],[0,1],[1,0],[1,1],[0,1]];
-  for (let row = 0; row < height; row++) for (let col = 0; col < width; col++) {
-    const index = row * width + col;
-    const left = Math.max(0, col - .5), right = Math.min(width - 1, col + .5);
-    const top = Math.max(0, row - .5), bottom = Math.min(height - 1, row + .5);
-    for (const [cx, cz] of corners) {
-      waterPositions.push(((cx ? right : left) - (width - 1) / 2) * cellSize, 0, ((cz ? bottom : top) - (height - 1) / 2) * cellSize);
-      openings.push(thresholds[index]);
-    }
-  }
-  const waterGeometry = new THREE.BufferGeometry();
-  waterGeometry.setAttribute('position', new THREE.Float32BufferAttribute(waterPositions, 3));
-  waterGeometry.setAttribute('opening', new THREE.Float32BufferAttribute(openings, 1));
+  // A shared surface follows local water depth down the levee and across land.
+  const waterGeometry = geometry.clone();
+  waterGeometry.setAttribute('depth', new THREE.BufferAttribute(waterDepths, 1).setUsage(THREE.DynamicDrawUsage));
   waterMaterial = new THREE.ShaderMaterial({
-    uniforms: { level: { value: level }, datum: { value: datum }, time: { value: 0 } },
-    vertexShader: `attribute float opening; varying float vOpening; varying vec2 vPosition; uniform float level; uniform float datum;
-      void main(){vOpening=opening; vPosition=position.xz; vec3 p=position; p.y=(level-datum)*8.0+0.2; gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.0);}`,
-    fragmentShader: `uniform float level; uniform float time; varying float vOpening; varying vec2 vPosition;
-      void main(){if(level<=vOpening) discard; float ripple=sin(vPosition.x*.12+vPosition.y*.08-time*1.5)*sin(vPosition.y*.19-time)*.025;
-      vec3 c=mix(vec3(.25,.61,.65),vec3(.12,.43,.51),clamp((level-vOpening)/6.0,0.0,1.0)); gl_FragColor=vec4(c+ripple,.89);}`,
+    uniforms: { time: { value: 0 } },
+    vertexShader: `attribute float depth; varying float vDepth; varying vec2 vPosition;
+      void main(){vDepth=depth; vPosition=position.xz; vec3 p=position; p.y+=depth*8.0+0.12; gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.0);}`,
+    fragmentShader: `uniform float time; varying float vDepth; varying vec2 vPosition;
+      void main(){if(vDepth<=0.015) discard;
+      float ripple=sin(vPosition.x*.12+vPosition.y*.08-time*1.5)*sin(vPosition.y*.19-time)*.025;
+      vec3 c=mix(vec3(.36,.72,.73),vec3(.12,.43,.51),clamp(vDepth/4.0,0.0,1.0));
+      float edge=1.0-smoothstep(.015,.12,vDepth);
+      gl_FragColor=vec4(c+ripple+edge*.08,.9);}`,
     transparent: true, side: THREE.DoubleSide, depthWrite: false
   });
   waterMesh = new THREE.Mesh(waterGeometry, waterMaterial); waterMesh.frustumCulled = false; waterMesh.renderOrder = 2; terrainGroup.add(waterMesh);
@@ -130,6 +140,7 @@ function buildTerrain(nextData) {
     $(`${side}-label`).hidden = !data.synthetic;
   }
   setPlaying(false); setLevel(Math.max(data.minLevel, Math.min(data.maxLevel, 2))); resetView();
+  $('data-message').textContent = data.synthetic ? 'Synthetic terrain · illustrative flow' : `Loaded ${data.name}. All processing stays in this browser.`;
 }
 
 function addTrees(positions) {
@@ -156,16 +167,17 @@ function setPlaying(value) {
 }
 function setLevel(value) {
   level = THREE.MathUtils.clamp(value, data.minLevel, data.maxLevel);
-  waterMaterial.uniforms.level.value = level;
+  sampleFlood(floodSequence, level, waterDepths);
+  waterMesh.geometry.attributes.depth.needsUpdate = true;
   $('timeline').value = level; $('level').textContent = level.toFixed(2);
   $('timeline').setAttribute('aria-valuetext', `${level.toFixed(2)} metres above model datum`);
   const progress = (level - data.minLevel) / (data.maxLevel - data.minLevel) * 100;
   $('gauge-fill').style.height = `${progress}%`; $('gauge-marker').style.bottom = `${progress}%`;
   let area = 0, maxDepth = 0;
-  for (let i = 0; i < thresholds.length; i++) if (level > thresholds[i]) {
+  for (let i = 0; i < thresholds.length; i++) if (waterDepths[i] > .015) {
     const col = i % data.width, row = Math.floor(i / data.width);
     const edgeFactor = (col === 0 || col === data.width - 1 ? .5 : 1) * (row === 0 || row === data.height - 1 ? .5 : 1);
-    area += data.cellSize ** 2 * edgeFactor; maxDepth = Math.max(maxDepth, level - data.elevations[i]);
+    area += data.cellSize ** 2 * edgeFactor; maxDepth = Math.max(maxDepth, waterDepths[i]);
   }
   $('area').textContent = (area / 10000).toFixed(2); $('depth').textContent = maxDepth.toFixed(2);
   let overtopped = 0;
@@ -191,19 +203,30 @@ $('export-dem').addEventListener('click', () => {
 });
 $('import-dem').addEventListener('change', async event => {
   const file = event.target.files[0]; if (!file) return;
+  event.target.disabled = true;
   try {
     if (file.size > 20 * 1024 * 1024) throw new Error('Use a DEM JSON file smaller than 20 MB.');
     const imported = validateDEM(JSON.parse(await file.text()));
     imported.synthetic = false;
-    buildTerrain(imported); $('data-message').textContent = `Loaded ${imported.name}. All processing stays in this browser.`;
+    await buildTerrain(imported);
   } catch (error) { $('data-message').textContent = `Could not load DEM. ${error.message}`; }
+  event.target.disabled = false;
   event.target.value = '';
 });
 new ResizeObserver(() => {
   const { width, height } = viewport.getBoundingClientRect();
   renderer.setSize(width, height); camera.aspect = width / height; camera.updateProjectionMatrix();
 }).observe(viewport);
-buildTerrain(validateDEM(makeDemo()));
+// Controls become available once the deterministic flood sequence is ready.
+const scenarioControls = [...document.querySelectorAll('button, input, select')];
+scenarioControls.forEach(control => { control.disabled = true; });
+try {
+  await buildTerrain(validateDEM(makeDemo()));
+  scenarioControls.forEach(control => { control.disabled = false; });
+} catch (error) {
+  $('data-message').textContent = error.message;
+  throw error;
+}
 renderer.setAnimationLoop(time => {
   const delta = Math.min((time - lastTime) / 1000, .1); lastTime = time;
   if (playing) {

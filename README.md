@@ -66,11 +66,11 @@ Rows increase along the scene's positive Z direction and columns along positive 
 
 ## Flood behaviour
 
-A minimax priority flood computes the lowest water level at which each raster cell connects to a river seed. Four-neighbour connectivity prevents diagonal leakage. At each selected stage, connected cells below the water surface are wet, including basins reached over a levee. End caps keep the demo water from bypassing the levees at the raster boundary. The terrain is smoothly triangulated for display and the inundation mask uses discrete raster cells, so the shoreline has cell-scale steps.
+A local surface-water routing model moves water between four neighbouring cells according to water-surface head differences. Each step limits outflow to the donor cell's available water. Water crosses a levee only when its local surface exceeds the next terrain elevation, then runs down the slope and spreads over the basin. Closed raster boundaries retain water. River seeds and the initially connected wet channel supply the rising river boundary.
 
-This is an equilibrium bathtub visualization. Basins equilibrate immediately after connection. It does not calculate transient flow, spill discharge, filling time, rainfall, infiltration, momentum or retained water during recession. Scrubbing backwards recomputes the equilibrium stage. The timeline represents water level progression, with no calibrated event duration. The water ripple shader is decorative.
+The flood sequence is computed in a Web Worker and cached in memory. Playback and scrubbing interpolate the same snapshots, including backwards scrubbing. Playback speed changes presentation speed. The 40-second animation shows 160 illustrative model seconds. Flow parameters are uncalibrated and omit momentum, rainfall and infiltration. Scrubbing backwards revisits the recorded rising event. It does not simulate a receding river.
 
-Area includes all wet raster cells, including the channel, with half-width edge cells matching the rendered extent. Maximum depth is water level minus the lowest connected elevation.
+The water mesh follows local terrain elevation plus depth, producing a sloping spill and shallow advancing front. The gauge shows the imposed river boundary level, while basin surfaces can remain lower. Levee status indicates whether the river boundary exceeds the supplied crest metadata. Local water may arrive later. Metrics use simulated depths above 0.015 m, including the channel. Maximum depth is measured across those wet cells.
 
 ## Size
 
