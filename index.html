@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="theme-color" content="#edf0e9"><title>Bathtub · River flood explorer</title></head>
+<body>
+  <div id="app">
+    <main>
+      <section class="scene-panel" aria-label="Interactive 3D river landscape">
+        <div class="scene-heading"><p class="eyebrow">THE LANDSCAPE</p><h1>Let the river rise.</h1><p>A river, two levees, and the land beyond.</p></div>
+        <div id="viewport"></div>
+        <div class="scene-tools"><button id="reset-view">Reset view ↗</button><button id="top-view">Top view ↓</button></div>
+        <div class="map-label" id="west-label">WEST BASIN</div><div class="map-label" id="east-label">EAST BASIN</div>
+        <div class="scene-bottom"><span>Drag to orbit · Scroll to zoom · Right-drag to pan</span><span id="dem-info"></span></div>
+        <div class="legend"><span><i class="land"></i>Terrain</span><span><i class="levee"></i>Levees</span><span><i class="water"></i>Connected water</span></div>
+      </section>
+      <aside>
+        <div class="aside-top"><p class="eyebrow">LIVE SCENARIO</p><h2 id="river-name">Willow River</h2><p class="muted">Explore where the water goes.</p></div>
+        <div class="gauge-card"><div><p class="eyebrow">RIVER LEVEL</p><div class="level"><span id="level">2.00</span><small>m</small></div><p class="muted">above model datum</p><div id="stage-status" class="status">Within the channel</div></div><div class="gauge" aria-hidden="true"><div class="gauge-fill" id="gauge-fill"></div><div id="gauge-ticks"></div><div class="gauge-marker" id="gauge-marker"></div></div></div>
+        <div class="basins"><div class="basin"><div><span class="basin-dot west"></span><strong>West levee</strong><span id="west-state">Holding</span></div><p>Lowest crest <b id="west-crest">4.20 m</b></p></div><div class="basin"><div><span class="basin-dot east"></span><strong>East levee</strong><span id="east-state">Holding</span></div><p>Lowest crest <b id="east-crest">6.10 m</b></p></div></div>
+        <div class="metrics"><div><span id="area">0.00</span><small>ha inundated</small></div><div><span id="depth">0.00</span><small>m max depth</small></div></div>
+        <details><summary>About this model <span>＋</span></summary><p>A connected bathtub model floods DEM cells reachable from the river below the selected water level. Unequal levee crests control when each basin connects.</p><p>Water equilibrates instantly after overtopping. Flow velocity, rainfall, infiltration and drainage history are outside this demo. Vertical relief is exaggerated 8×.</p></details>
+        <div class="data-actions"><button id="export-dem">↓ Export DEM</button><label class="button" for="import-dem">↑ Load DEM<input type="file" id="import-dem" accept=".json,application/json"></label></div><p id="data-message" role="status">Synthetic terrain · local processing</p>
+      </aside>
+      <section class="timeline" aria-label="Flood timeline"><div class="timeline-title"><div><p class="eyebrow">FLOOD TIMELINE</p><h2>Follow the rising water</h2></div><button id="restart" title="Restart flood">↺ Restart</button></div><div class="timeline-controls"><button id="play" class="play" aria-label="Play flood animation">▶</button><div class="track"><label class="sr-only" for="timeline">River water level in metres</label><input id="timeline" type="range" min="1" max="8" step="0.01" value="2"><div class="track-labels"><span id="min-label">1.0 m · Low flow</span><button id="west-jump">West overtops · 4.2 m</button><button id="east-jump">East overtops · 6.1 m</button><span id="max-label">8.0 m</span></div></div><label class="speed-label">Speed<select id="speed" aria-label="Playback speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select></label></div></section>
+    </main>
+  </div><script type="module" src="/src/main.js"></script>
+</body></html>
