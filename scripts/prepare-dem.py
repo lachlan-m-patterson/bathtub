@@ -15,10 +15,13 @@ from rasterio.windows import from_bounds
 parser = argparse.ArgumentParser()
 parser.add_argument("source", type=Path)
 parser.add_argument("--output", type=Path, default=Path("public/data/tweed-dem.json"))
+parser.add_argument("--cell-size", type=int, default=4)
 args = parser.parse_args()
 bounds = [538000, 6865000, 540000, 6867000]
-cell_size = 8
-width = height = 250
+cell_size = args.cell_size
+if cell_size < 4 or 2000 % cell_size:
+    raise ValueError("Cell size must divide 2000 and be at least 4 metres")
+width = height = 2000 // cell_size
 with rasterio.open(args.source) as source:
     window = from_bounds(*bounds, source.transform)
     raster = source.read(1, window=window, out_shape=(height, width),
@@ -27,7 +30,7 @@ with rasterio.open(args.source) as source:
     coverage = source.read_masks(1, window=window, out_shape=(height, width),
                                  resampling=Resampling.average)
     valid = (~np.ma.getmaskarray(raster)) & (coverage >= 128)
-    elevations = np.where(valid, raster.filled(0), 0).round(3)
+    elevations = np.where(valid, raster.filled(0), 0).astype(np.float64).round(3)
     crs = source.crs.to_wkt()
 
 # The largest low-elevation connected component supplies the river boundary.
@@ -58,7 +61,7 @@ data = {
     "minLevel": 0, "maxLevel": 7, "synthetic": False,
     "verticalDatum": "Assumed AHD · TIFF datum unconfirmed",
     "source": {"file": args.source.name, "resolutionMetres": 1,
-               "crsWkt": crs, "bounds": bounds, "resampling": "8 m area average; majority valid coverage",
+               "crsWkt": crs, "bounds": bounds, "resampling": f"{cell_size} m area average; majority valid coverage",
                "verticalDatumConfirmed": False,
                "riverBoundary": "Largest connected component at or below 0.35 m"}
 }

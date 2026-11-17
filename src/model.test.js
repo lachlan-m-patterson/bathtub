@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makeDemo, validateDEM, floodThresholds, createFloodSequence, sampleFlood, stageAtTime } from './model.js';
+import { makeDemo, validateDEM, floodThresholds, createFloodSequence, sampleFlood, stageAtTime, waterSurfaceElevations } from './model.js';
 
 test('a low basin remains disconnected until its enclosing barrier overtops', () => {
   const dem = { name: 'Barrier', width: 5, height: 3, cellSize: 1, minLevel: 0, maxLevel: 10,
@@ -92,4 +92,22 @@ test('hydrograph times and levels are validated', () => {
   const dem = makeDemo();
   assert.throws(() => validateDEM({ ...dem, hydrograph: { start: '2022-02-24', points: [[0,1],[0,2]] } }), /increasing hours/);
   assert.throws(() => validateDEM({ ...dem, hydrograph: { start: '2022-02-24', points: [[0,1],[2,9]] } }), /gauge range/);
+});
+
+test('a high dry river bank cannot pull the water surface upwards', () => {
+  const data = { width: 3, height: 3, elevations: [20,20,20, -2,-2,-2, -3,-3,-3] };
+  const depths = new Float32Array([0,0,0, 4,4,4, 0,0,0]);
+  const surface = waterSurfaceElevations(data, depths, new Float32Array(9));
+  assert.equal(surface[1], 2, 'extend the 2 m water surface beneath the high bank');
+  assert.equal(surface[4], 2, 'preserve the simulated wet surface');
+  assert.ok(surface[7] < -3, 'keep a lower but unreached dry cell below its terrain');
+  // Along the bank triangle, surface remains level and crosses the sloping ground.
+  assert.equal((surface[1] + surface[4]) / 2, 2);
+});
+
+test('shoreline extrapolation excludes masked neighbours', () => {
+  const data = { width: 3, height: 3, elevations: Array(9).fill(1), validMask: [0,1,1,1,1,1,1,1,1] };
+  const depths = new Float32Array([50,0,0,0,0,0,0,0,0]);
+  const surface = waterSurfaceElevations(data, depths, new Float32Array(9));
+  assert.ok(surface[4] < 1);
 });

@@ -51,7 +51,7 @@ The localhost URL is for local preview. Story readers need the published HTTPS U
 
 The source `dem_seamless.tif` has 1 m pixels, a 4 km square extent and substantial NoData outside its principal land coverage. Its coordinate-system label is GDA2020 / MGA zone 56, stored as a local CRS. The prepared view selects the land-and-river square bounded by eastings 538000–540000 and northings 6865000–6867000. The original TIFF remains at its supplied location.
 
-`scripts/prepare-dem.py` averages this crop to a 250 × 250 grid with 8 m cells, preserving negative elevations. The resulting elevation range is approximately −14.054 to 72.911 m. Resampling smooths narrow levees and other small terrain features. Validity is stored separately from elevations, so NoData is never treated as a deep channel. This selected crop has full coverage.
+`scripts/prepare-dem.py` averages this crop to a 500 × 500 grid with 4 m cells, preserving negative elevations. The resulting elevation range is approximately −14.371 to 73.329 m. Resampling smooths narrow levees and other small terrain features. Validity is stored separately from elevations, so NoData is never treated as a deep channel. This selected crop has full coverage.
 
 The river boundary is extracted as the largest connected terrain component at or below the initial 0.35 m gauge stage. One gauge stage is imposed throughout that channel, with no longitudinal water-surface slope. This boundary extraction is an approximation and is recorded in the dataset metadata.
 
@@ -82,17 +82,17 @@ Export DEM downloads the current terrain, validity mask, source metadata and hyd
 | `hydrograph` | Optional object containing `start` and increasing `[hour, level]` pairs starting at hour zero |
 | `levees` | Optional `west` and `east` crest metadata for synthetic examples |
 
-Rows run south and columns east in the prepared raster. The scene uses local coordinates and 8× vertical exaggeration. The real terrain displays its surveyed landforms, without decorative trees or synthetic levee labels.
+Rows run south and columns east in the prepared raster. The scene uses local coordinates and 1.5× vertical exaggeration. The real terrain displays its surveyed landforms, without decorative trees or synthetic levee labels.
 
 ## Flood behaviour
 
 A local surface-water routing model moves water between four neighbouring cells according to water-surface head differences. Each step limits outflow to the donor cell's available water. Water crosses a levee only when its local surface exceeds the next terrain elevation, then runs down the slope and spreads over the basin. Closed raster boundaries retain water. River seeds and the initially connected wet channel supply the rising river boundary.
 
-The default event is precomputed as 181 hourly snapshots and stored as little-endian unsigned 16-bit depths in millimetres. Playback interpolates adjacent snapshots. Backwards scrubbing revisits cached states, while forward playback includes the receding gauge stage and retained water behind terrain barriers. Imports are computed in a Web Worker.
+The default event is precomputed as 181 hourly snapshots and stored as gzip-compressed little-endian unsigned 16-bit depths in millimetres. The browser decompresses the snapshots locally. Playback interpolates adjacent snapshots. Backwards scrubbing revisits cached states, while forward playback includes the receding gauge stage and retained water behind terrain barriers. Imports are computed in a Web Worker.
 
 The 180-hour chart event is compressed to 480 solver seconds using uncalibrated routing parameters. The displayed dates locate the gauge trace; inundation arrival times and extent are illustrative. The model omits momentum, rainfall and infiltration. Closed crop edges and missing-data boundaries retain water. Water can drain through the prescribed river channel as its stage falls.
 
-The water mesh follows local terrain elevation plus depth, producing a sloping spill and shallow advancing front. The gauge shows the imposed river boundary level, while basin surfaces can remain lower. Levee status indicates whether the river boundary exceeds the supplied crest metadata. Local water may arrive later. Metrics use simulated depths above 0.015 m, including the channel. Maximum depth is measured across those wet cells.
+The wet water mesh follows simulated water-surface elevations. At dry banks, neighbouring wet surfaces extend beneath the terrain and are clipped at the shoreline, preventing dry bank vertices from lifting water into spikes. Shallow advancing fronts remain tied to the simulated wet cells. The gauge shows the imposed river boundary level, while basin surfaces can remain lower. Levee status indicates whether the river boundary exceeds the supplied crest metadata. Local water may arrive later. Metrics use simulated depths above 0.015 m, including the channel. Maximum depth is measured across those wet cells.
 
 ## Size
 

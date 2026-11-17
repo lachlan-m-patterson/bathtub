@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { validateDEM, floodThresholds, sampleFlood, stageAtTime } from './model.js';
+import { validateDEM, floodThresholds, sampleFlood, stageAtTime, waterSurfaceElevations } from './model.js';
 import './style.css';
 
 const $ = id => document.getElementById(id);
@@ -22,9 +22,9 @@ scene.add(new THREE.HemisphereLight('#fffef0', '#607654', 2.3));
 const sun = new THREE.DirectionalLight('#fff4d8', 3.1);
 sun.position.set(-300, 600, 200); scene.add(sun);
 const terrainGroup = new THREE.Group(); scene.add(terrainGroup);
-const verticalScale = 8;
+const verticalScale = 1.5;
 let data, thresholds, waterMaterial, waterMesh, level = 2, playing = false, extent = 800, datum = 0;
-let floodSequence, waterDepths, eventTime = 0;
+let floodSequence, waterDepths, waterSurfaces, eventTime = 0;
 let timelineStops = [];
 let labelPositions = [];
 let lastTime = performance.now();
@@ -62,6 +62,7 @@ async function buildTerrain(nextData, preparedSequence) {
   const nextSequence = preparedSequence ?? await prepareFlood(nextData, nextThresholds);
   clearTerrain(); data = nextData; thresholds = nextThresholds;
   floodSequence = nextSequence; waterDepths = new Float32Array(data.elevations.length);
+  waterSurfaces = new Float32Array(data.elevations.length);
   datum = Infinity;
   for (let i = 0; i < data.elevations.length; i++) {
     if (!data.validMask || data.validMask[i]) datum = Math.min(datum, data.elevations[i]);
@@ -121,13 +122,13 @@ async function buildTerrain(nextData, preparedSequence) {
   if (!data.validMask || data.validMask.every(Boolean)) terrainGroup.add(base);
   else { base.geometry.dispose(); base.material.dispose(); }
 
-  // A shared surface follows local water depth down the levee and across land.
+  // Water is extended under dry banks and clipped at the terrain intersection.
   const waterGeometry = geometry.clone();
-  waterGeometry.setAttribute('depth', new THREE.BufferAttribute(waterDepths, 1).setUsage(THREE.DynamicDrawUsage));
+  waterGeometry.setAttribute('surface', new THREE.BufferAttribute(waterSurfaces, 1).setUsage(THREE.DynamicDrawUsage));
   waterMaterial = new THREE.ShaderMaterial({
-    uniforms: { time: { value: 0 } },
-    vertexShader: `attribute float depth; varying float vDepth; varying vec2 vPosition;
-      void main(){vDepth=depth; vPosition=position.xz; vec3 p=position; p.y+=depth*8.0+0.12; gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.0);}`,
+    uniforms: { time: { value: 0 }, datum: { value: datum }, verticalScale: { value: verticalScale } },
+    vertexShader: `attribute float surface; uniform float datum; uniform float verticalScale; varying float vDepth; varying vec2 vPosition;
+      void main(){vDepth=surface-(position.y/verticalScale+datum); vPosition=position.xz; vec3 p=position; p.y=(surface-datum)*verticalScale+0.025; gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.0);}`,
     fragmentShader: `uniform float time; varying float vDepth; varying vec2 vPosition;
       void main(){if(vDepth<=0.015) discard;
       float ripple=sin(vPosition.x*.12+vPosition.y*.08-time*1.5)*sin(vPosition.y*.19-time)*.025;
@@ -140,7 +141,7 @@ async function buildTerrain(nextData, preparedSequence) {
   if (data.synthetic) addTrees(positions);
   labelPositions = [new THREE.Vector3(-width * cellSize * .28, 65, 20), new THREE.Vector3(width * cellSize * .28, 70, -30)];
   $('river-name').textContent = data.name;
-  $('dem-info').textContent = `${width} × ${height} cells / ${cellSize} m DEM / 8× relief`;
+  $('dem-info').textContent = `${width} × ${height} cells / ${cellSize} m DEM / ${verticalScale}× relief`;
   $('timeline').min = floodSequence.start; $('timeline').max = floodSequence.end;
   $('min-label').textContent = data.hydrograph ? formatEventTime(floodSequence.start, false) : `${data.minLevel.toFixed(1)} m`;
   $('max-label').textContent = data.hydrograph ? formatEventTime(floodSequence.end, false) : `${data.maxLevel.toFixed(1)} m`;
@@ -237,7 +238,8 @@ function setTime(value) {
   eventTime = THREE.MathUtils.clamp(value, floodSequence.start, floodSequence.end);
   level = stageAtTime(data, eventTime);
   sampleFlood(floodSequence, eventTime, waterDepths);
-  waterMesh.geometry.attributes.depth.needsUpdate = true;
+  waterSurfaceElevations(data, waterDepths, waterSurfaces);
+  waterMesh.geometry.attributes.surface.needsUpdate = true;
   $('timeline').value = eventTime; $('level').textContent = level.toFixed(2);
   $('timeline').setAttribute('aria-valuetext', data.hydrograph ? `${formatEventTime(eventTime)}, approximately ${level.toFixed(2)} metres AHD` : `${level.toFixed(2)} metres above model datum`);
   $('event-time').textContent = data.hydrograph ? formatEventTime(eventTime) : 'Follow the rising water';
@@ -297,18 +299,23 @@ const scenarioControls = [...document.querySelectorAll('button, input, select')]
 scenarioControls.forEach(control => { control.disabled = true; });
 try {
   const fetchData = async path => {
-    const response = await fetch(`${import.meta.env.BASE_URL}data/${path}`);
+    const response = await fetch(`${import.meta.env.BASE_URL}data/${path}?v=4m-shoreline`);
     if (!response.ok) throw new Error(`Could not load ${path}. Reload to retry.`);
     return response;
   };
   $('data-message').textContent = 'Loading terrain and flood event…';
-  const [dem, hydrograph, metadata, binary] = await Promise.all([
+  const [dem, hydrograph, metadata, compressed] = await Promise.all([
     fetchData('tweed-dem.json').then(response => response.json()),
     fetchData('hydrograph.json').then(response => response.json()),
     fetchData('tweed-flood.json').then(response => response.json()),
-    fetchData('tweed-flood.bin').then(response => response.arrayBuffer())
+    fetchData('tweed-flood.bin.gz').then(response => response.arrayBuffer())
   ]);
   dem.hydrograph = hydrograph;
+  // Some hosts decompress gzip responses automatically; support either form.
+  const signature = new Uint8Array(compressed, 0, Math.min(2, compressed.byteLength));
+  const binary = signature[0] === 0x1f && signature[1] === 0x8b
+    ? await new Response(new Blob([compressed]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer()
+    : compressed;
   if (metadata.cellCount !== dem.width * dem.height || binary.byteLength !== metadata.frameCount * metadata.cellCount * 2) throw new Error('Flood data does not match the terrain. Reload to retry.');
   const frames = Array.from({ length: metadata.frameCount }, (_, index) => new Uint16Array(binary, index * metadata.cellCount * 2, metadata.cellCount));
   await buildTerrain(validateDEM(dem), { frames, start: metadata.start, end: metadata.end, depthScale: .001 });

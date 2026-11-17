@@ -110,7 +110,7 @@ export function floodThresholds(data) {
 // Conservative, local surface-water routing with a prescribed river boundary.
 // Each step limits total outflow to the donor's available water. Closed raster
 // edges retain water. Parameters are illustrative and are not calibrated.
-export function createFloodSequence(data, thresholds = floodThresholds(data)) {
+export function createFloodSequence(data, thresholds = floodThresholds(data), options = {}) {
   const count = data.elevations.length;
   const start = data.hydrograph ? 0 : data.minLevel;
   const end = data.hydrograph ? data.hydrograph.points.at(-1)[0] : data.maxLevel;
@@ -120,7 +120,7 @@ export function createFloodSequence(data, thresholds = floodThresholds(data)) {
   for (const index of data.riverSeeds) reservoir[index] = 1;
   let depths = new Float32Array(count);
   let next = new Float32Array(count);
-  const frameCount = Math.max(20, Math.min(data.hydrograph ? 181 : 161, Math.floor(48000000 / (count * 4))));
+  const frameCount = options.frameCount ?? Math.max(20, Math.min(data.hydrograph ? 181 : 161, Math.floor(48000000 / (count * 4))));
   const frames = [];
   const duration = data.hydrograph ? 480 : 160;
   const frameDuration = duration / (frameCount - 1);
@@ -177,6 +177,31 @@ export function sampleFlood(sequence, time, output) {
   const fraction = position - before;
   for (let i = 0; i < output.length; i++) {
     output[i] = (sequence.frames[before][i] * (1 - fraction) + sequence.frames[after][i] * fraction) * (sequence.depthScale ?? 1);
+  }
+  return output;
+}
+
+// Extend the nearby wet surface under dry banks, then clip it against terrain
+// in the shader. Dry bank elevations must not lift the water into triangles.
+export function waterSurfaceElevations(data, depths, output) {
+  const { width, height, elevations, validMask } = data;
+  for (let i = 0; i < depths.length; i++) {
+    if (depths[i] > .015 && (!validMask || validMask[i])) {
+      output[i] = elevations[i] + depths[i];
+      continue;
+    }
+    const row = Math.floor(i / width), col = i % width;
+    let total = 0, count = 0;
+    for (let y = Math.max(0, row - 1); y <= Math.min(height - 1, row + 1); y++) {
+      for (let x = Math.max(0, col - 1); x <= Math.min(width - 1, col + 1); x++) {
+        const neighbour = y * width + x;
+        if (depths[neighbour] > .015 && (!validMask || validMask[neighbour])) {
+          total += elevations[neighbour] + depths[neighbour];
+          count++;
+        }
+      }
+    }
+    output[i] = count ? Math.min(elevations[i] - .015, total / count) : elevations[i] - .015;
   }
   return output;
 }
