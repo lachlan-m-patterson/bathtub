@@ -24,12 +24,35 @@ export function makeDemo() {
 export function validateDEM(data) {
   if (!data || !Number.isInteger(data.width) || !Number.isInteger(data.height) || data.width < 3 || data.height < 3 || data.width * data.height > 250000) throw new Error('DEM dimensions must be at least 3 × 3 and at most 250,000 cells.');
   if (!Number.isFinite(data.cellSize) || data.cellSize <= 0) throw new Error('cellSize must be a positive number in metres.');
-  if (!Array.isArray(data.elevations) || data.elevations.length !== data.width * data.height || !data.elevations.every(Number.isFinite)) throw new Error('Supply one finite elevation per cell. Fill or crop NoData cells first.');
+  if (!Array.isArray(data.elevations) || data.elevations.length !== data.width * data.height || !data.elevations.every(Number.isFinite)) throw new Error('Supply one finite elevation per cell. Use validMask to exclude NoData.');
+  if (data.validMask && (!Array.isArray(data.validMask) || data.validMask.length !== data.elevations.length || !data.validMask.every(value => value === 0 || value === 1))) throw new Error('validMask must contain one 0 or 1 per cell.');
   if (!Array.isArray(data.riverSeeds) || !data.riverSeeds.length || !data.riverSeeds.every(i => Number.isInteger(i) && i >= 0 && i < data.elevations.length)) throw new Error('riverSeeds must contain valid river cell indices.');
   if (!Number.isFinite(data.minLevel) || !Number.isFinite(data.maxLevel) || data.maxLevel <= data.minLevel) throw new Error('Supply minLevel and maxLevel in elevation metres, with maxLevel greater than minLevel.');
   if (typeof data.name !== 'string' || !data.name.trim()) throw new Error('Supply a dataset name.');
   if (data.levees && !['west', 'east'].every(side => Number.isFinite(data.levees[side]))) throw new Error('Optional levees must contain numeric west and east crest elevations.');
+  if (data.validMask && data.riverSeeds.some(i => !data.validMask[i])) throw new Error('River seeds must be inside valid terrain.');
+  if (data.hydrograph) {
+    const points = data.hydrograph.points;
+    if (!Array.isArray(points) || points.length < 2 || !points.every((point, index) =>
+      Array.isArray(point) && point.length === 2 && point.every(Number.isFinite) &&
+      point[0] >= 0 && point[1] >= data.minLevel && point[1] <= data.maxLevel &&
+      (index === 0 ? point[0] === 0 : point[0] > points[index - 1][0]))) throw new Error('Hydrograph points must have increasing hours from zero and levels inside the gauge range.');
+    if (!Number.isFinite(Date.parse(data.hydrograph.start))) throw new Error('Supply a valid hydrograph start date.');
+  }
   return data;
+}
+
+export function stageAtTime(data, time) {
+  if (!data.hydrograph) return Math.max(data.minLevel, Math.min(data.maxLevel, time));
+  const points = data.hydrograph.points;
+  if (time <= points[0][0]) return points[0][1];
+  for (let i = 1; i < points.length; i++) {
+    if (time <= points[i][0]) {
+      const [start, low] = points[i - 1], [end, high] = points[i];
+      return low + (high - low) * (time - start) / (end - start);
+    }
+  }
+  return points.at(-1)[1];
 }
 
 // Minimax Dijkstra: each cell opens at the lowest barrier along any path
@@ -76,6 +99,7 @@ export function floodThresholds(data) {
     if (row > 0) neighbours.push(index - width);
     if (row < height - 1) neighbours.push(index + width);
     for (const next of neighbours) {
+      if (data.validMask && !data.validMask[next]) continue;
       const candidate = Math.max(level, elevations[next]);
       if (candidate < thresholds[next]) { thresholds[next] = candidate; push(next, candidate); }
     }
@@ -88,14 +112,17 @@ export function floodThresholds(data) {
 // edges retain water. Parameters are illustrative and are not calibrated.
 export function createFloodSequence(data, thresholds = floodThresholds(data)) {
   const count = data.elevations.length;
+  const start = data.hydrograph ? 0 : data.minLevel;
+  const end = data.hydrograph ? data.hydrograph.points.at(-1)[0] : data.maxLevel;
+  const initialStage = stageAtTime(data, start);
   const reservoir = new Uint8Array(count);
-  for (let i = 0; i < count; i++) reservoir[i] = thresholds[i] <= data.minLevel ? 1 : 0;
+  for (let i = 0; i < count; i++) reservoir[i] = thresholds[i] <= initialStage ? 1 : 0;
   for (const index of data.riverSeeds) reservoir[index] = 1;
   let depths = new Float32Array(count);
   let next = new Float32Array(count);
-  const frameCount = Math.max(20, Math.min(161, Math.floor(32000000 / (count * 4))));
+  const frameCount = Math.max(20, Math.min(data.hydrograph ? 181 : 161, Math.floor(48000000 / (count * 4))));
   const frames = [];
-  const duration = 160;
+  const duration = data.hydrograph ? 480 : 160;
   const frameDuration = duration / (frameCount - 1);
   const substeps = Math.ceil(frameDuration / .025);
   const dt = frameDuration / substeps;
@@ -104,12 +131,12 @@ export function createFloodSequence(data, thresholds = floodThresholds(data)) {
   function setRiver(stage) {
     for (let i = 0; i < count; i++) if (reservoir[i]) depths[i] = Math.max(0, stage - data.elevations[i]);
   }
-  setRiver(data.minLevel);
+  setRiver(initialStage);
   frames.push(depths.slice());
   for (let frame = 1; frame < frameCount; frame++) {
     for (let step = 1; step <= substeps; step++) {
       const progress = (frame - 1 + step / substeps) / (frameCount - 1);
-      const stage = data.minLevel + progress * (data.maxLevel - data.minLevel);
+      const stage = stageAtTime(data, start + progress * (end - start));
       setRiver(stage);
       next.set(depths);
       for (let i = 0; i < count; i++) {
@@ -123,7 +150,7 @@ export function createFloodSequence(data, thresholds = floodThresholds(data)) {
         let total = 0;
         for (let edge = 0; edge < 4; edge++) {
           const j = neighbours[edge];
-          const head = j < 0 ? 0 : Math.max(0, surface - Math.max(data.elevations[i], data.elevations[j] + depths[j]));
+          const head = j < 0 || (data.validMask && !data.validMask[j]) ? 0 : Math.max(0, surface - Math.max(data.elevations[i], data.elevations[j] + depths[j]));
           rates[edge] = head ** 1.5;
           total += rates[edge];
         }
@@ -141,15 +168,15 @@ export function createFloodSequence(data, thresholds = floodThresholds(data)) {
     }
     frames.push(depths.slice());
   }
-  return { frames, minLevel: data.minLevel, maxLevel: data.maxLevel };
+  return { frames, start, end };
 }
 
-export function sampleFlood(sequence, level, output) {
-  const position = Math.max(0, Math.min(1, (level - sequence.minLevel) / (sequence.maxLevel - sequence.minLevel))) * (sequence.frames.length - 1);
+export function sampleFlood(sequence, time, output) {
+  const position = Math.max(0, Math.min(1, (time - sequence.start) / (sequence.end - sequence.start))) * (sequence.frames.length - 1);
   const before = Math.floor(position), after = Math.min(before + 1, sequence.frames.length - 1);
   const fraction = position - before;
   for (let i = 0; i < output.length; i++) {
-    output[i] = sequence.frames[before][i] * (1 - fraction) + sequence.frames[after][i] * fraction;
+    output[i] = (sequence.frames[before][i] * (1 - fraction) + sequence.frames[after][i] * fraction) * (sequence.depthScale ?? 1);
   }
   return output;
 }

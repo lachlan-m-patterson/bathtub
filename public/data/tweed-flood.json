@@ -1,0 +1,9 @@
+{
+  "start": 0,
+  "end": 180,
+  "frameCount": 181,
+  "cellCount": 62500,
+  "encoding": "uint16-le-mm",
+  "source": "Illustrative routing driven by approximately traced recorded hydrograph",
+  "simulationSeconds": 480
+}

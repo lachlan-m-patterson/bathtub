@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makeDemo, validateDEM, floodThresholds, createFloodSequence, sampleFlood } from './model.js';
+import { makeDemo, validateDEM, floodThresholds, createFloodSequence, sampleFlood, stageAtTime } from './model.js';
 
 test('a low basin remains disconnected until its enclosing barrier overtops', () => {
   const dem = { name: 'Barrier', width: 5, height: 3, cellSize: 1, minLevel: 0, maxLevel: 10,
@@ -54,4 +54,42 @@ test('spill advances gradually into both basins and scrubbing reproduces it', ()
   const final = basinCounts(8);
   assert.ok(final.east > 0 && final.west > later.west);
   assert.deepEqual(basinCounts(5), early);
+});
+
+test('negative bathymetry and recession retain distinct event states', () => {
+  const dem = validateDEM({ name: 'Tidal channel', width: 5, height: 3, cellSize: 4,
+    minLevel: 0, maxLevel: 4, riverSeeds: [5],
+    elevations: [5,5,5,5,5, -2,1,0,0,5, 5,5,5,5,5],
+    hydrograph: { start: '2022-02-24T00:00:00', points: [[0,.35],[5,3],[10,.35]] }
+  });
+  assert.equal(stageAtTime(dem, 0), .35);
+  assert.equal(stageAtTime(dem, 5), 3);
+  assert.ok(Math.abs(stageAtTime(dem, 7.5) - 1.675) < 1e-9);
+  const sequence = createFloodSequence(dem);
+  const first = sampleFlood(sequence, 0, new Float32Array(15));
+  const last = sampleFlood(sequence, 10, new Float32Array(15));
+  assert.ok(Math.abs(first[5] - 2.35) < 1e-5);
+  assert.ok(Math.abs(last[5] - 2.35) < 1e-5);
+  assert.equal(first[7], 0);
+  assert.ok(last[7] > .35, 'water remains behind the ridge during recession');
+  assert.deepEqual(sampleFlood(sequence, 0, new Float32Array(15)), first);
+});
+
+test('NoData cells neither seed nor transmit flood water', () => {
+  const dem = { name: 'Coverage gap', width: 3, height: 3, cellSize: 4,
+    minLevel: 0, maxLevel: 2, riverSeeds: [0],
+    elevations: [-2,0,-2,-2,0,-2,-2,0,-2], validMask: [1,0,1,1,0,1,1,0,1]
+  };
+  const thresholds = floodThresholds(validateDEM(dem));
+  assert.equal(thresholds[2], Infinity);
+  const sequence = createFloodSequence(dem, thresholds);
+  assert.equal(sequence.frames.at(-1)[2], 0);
+  assert.equal(sequence.frames.at(-1)[1], 0);
+  assert.throws(() => validateDEM({ ...dem, riverSeeds: [1] }), /valid terrain/);
+});
+
+test('hydrograph times and levels are validated', () => {
+  const dem = makeDemo();
+  assert.throws(() => validateDEM({ ...dem, hydrograph: { start: '2022-02-24', points: [[0,1],[0,2]] } }), /increasing hours/);
+  assert.throws(() => validateDEM({ ...dem, hydrograph: { start: '2022-02-24', points: [[0,1],[2,9]] } }), /gauge range/);
 });

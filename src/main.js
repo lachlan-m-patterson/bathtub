@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { makeDemo, validateDEM, floodThresholds, sampleFlood } from './model.js';
+import { validateDEM, floodThresholds, sampleFlood, stageAtTime } from './model.js';
 import './style.css';
 
 const $ = id => document.getElementById(id);
@@ -24,7 +24,8 @@ sun.position.set(-300, 600, 200); scene.add(sun);
 const terrainGroup = new THREE.Group(); scene.add(terrainGroup);
 const verticalScale = 8;
 let data, thresholds, waterMaterial, waterMesh, level = 2, playing = false, extent = 800, datum = 0;
-let floodSequence, waterDepths;
+let floodSequence, waterDepths, eventTime = 0;
+let timelineStops = [];
 let labelPositions = [];
 let lastTime = performance.now();
 
@@ -53,14 +54,18 @@ function prepareFlood(dem, thresholds) {
   });
 }
 
-async function buildTerrain(nextData) {
+async function buildTerrain(nextData, preparedSequence) {
   $('data-message').textContent = 'Preparing the flood progression…';
+  $('loading-message').hidden = false;
+  $('loading-message').textContent = 'Preparing the flood progression…';
   const nextThresholds = floodThresholds(nextData);
-  const nextSequence = await prepareFlood(nextData, nextThresholds);
+  const nextSequence = preparedSequence ?? await prepareFlood(nextData, nextThresholds);
   clearTerrain(); data = nextData; thresholds = nextThresholds;
   floodSequence = nextSequence; waterDepths = new Float32Array(data.elevations.length);
-  datum = Math.min(...data.elevations.slice(0, 1));
-  for (const value of data.elevations) datum = Math.min(datum, value);
+  datum = Infinity;
+  for (let i = 0; i < data.elevations.length; i++) {
+    if (!data.validMask || data.validMask[i]) datum = Math.min(datum, data.elevations[i]);
+  }
   const { width, height, cellSize, elevations } = data;
   extent = Math.max(width, height) * cellSize;
   const geometry = new THREE.PlaneGeometry((width - 1) * cellSize, (height - 1) * cellSize, width - 1, height - 1);
@@ -82,6 +87,16 @@ async function buildTerrain(nextData) {
     color.multiplyScalar(texture).toArray(colors, i * 3);
   }
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  if (data.validMask) {
+    const indices = geometry.index.array;
+    const validTriangles = [];
+    for (let i = 0; i < indices.length; i += 3) {
+      if (data.validMask[indices[i]] && data.validMask[indices[i + 1]] && data.validMask[indices[i + 2]]) {
+        validTriangles.push(indices[i], indices[i + 1], indices[i + 2]);
+      }
+    }
+    geometry.setIndex(validTriangles);
+  }
   geometry.computeVertexNormals();
   terrainGroup.add(new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide })));
   // A skirt exposes the DEM as a terrain block.
@@ -93,6 +108,7 @@ async function buildTerrain(nextData) {
   const skirt = [], skirtBottom = -extent * .035;
   for (let j = 0; j < edge.length; j++) {
     const a = edge[j], b = edge[(j + 1) % edge.length];
+    if (data.validMask && (!data.validMask[a] || !data.validMask[b])) continue;
     const ax = positions.getX(a), az = positions.getZ(a), ay = positions.getY(a);
     const bx = positions.getX(b), bz = positions.getZ(b), by = positions.getY(b);
     skirt.push(ax,ay,az,bx,by,bz,ax,skirtBottom,az,bx,by,bz,bx,skirtBottom,bz,ax,skirtBottom,az);
@@ -101,7 +117,9 @@ async function buildTerrain(nextData) {
   skirtGeometry.setAttribute('position', new THREE.Float32BufferAttribute(skirt, 3)); skirtGeometry.computeVertexNormals();
   terrainGroup.add(new THREE.Mesh(skirtGeometry, new THREE.MeshStandardMaterial({ color: '#8b9472', roughness: 1, side: THREE.DoubleSide })));
   const base = new THREE.Mesh(new THREE.BoxGeometry((width - 1) * cellSize, extent * .008, (height - 1) * cellSize), new THREE.MeshStandardMaterial({ color: '#6e7b60', roughness: 1 }));
-  base.position.y = skirtBottom; terrainGroup.add(base);
+  base.position.y = skirtBottom;
+  if (!data.validMask || data.validMask.every(Boolean)) terrainGroup.add(base);
+  else { base.geometry.dispose(); base.material.dispose(); }
 
   // A shared surface follows local water depth down the levee and across land.
   const waterGeometry = geometry.clone();
@@ -119,13 +137,20 @@ async function buildTerrain(nextData) {
     transparent: true, side: THREE.DoubleSide, depthWrite: false
   });
   waterMesh = new THREE.Mesh(waterGeometry, waterMaterial); waterMesh.frustumCulled = false; waterMesh.renderOrder = 2; terrainGroup.add(waterMesh);
-  addTrees(positions);
+  if (data.synthetic) addTrees(positions);
   labelPositions = [new THREE.Vector3(-width * cellSize * .28, 65, 20), new THREE.Vector3(width * cellSize * .28, 70, -30)];
   $('river-name').textContent = data.name;
   $('dem-info').textContent = `${width} × ${height} cells / ${cellSize} m DEM / 8× relief`;
-  $('timeline').min = data.minLevel; $('timeline').max = data.maxLevel;
-  $('min-label').textContent = `${data.minLevel.toFixed(1)} m · Low flow`;
-  $('max-label').textContent = `${data.maxLevel.toFixed(1)} m`;
+  $('timeline').min = floodSequence.start; $('timeline').max = floodSequence.end;
+  $('min-label').textContent = data.hydrograph ? formatEventTime(floodSequence.start, false) : `${data.minLevel.toFixed(1)} m`;
+  $('max-label').textContent = data.hydrograph ? formatEventTime(floodSequence.end, false) : `${data.maxLevel.toFixed(1)} m`;
+  $('datum-label').textContent = data.hydrograph ? 'mAHD · approximate gauge reading' : 'above model datum';
+  $('scene-description').textContent = data.hydrograph ? 'Murwillumbah · terrain and river bathymetry' : 'A river, two levees, and the land beyond.';
+  $('hydrograph-panel').hidden = !data.hydrograph;
+  $('survey-note').hidden = !data.source;
+  $('survey-note').textContent = data.source ? `${data.source.resolutionMetres ?? 'Unknown'} m source DEM averaged to ${cellSize} m. Negative elevations retained. ${data.verticalDatum ?? 'Vertical datum unspecified.'}` : '';
+  document.querySelector('.basins').hidden = !data.levees;
+  $('levee-legend').hidden = !data.synthetic;
   $('gauge-ticks').replaceChildren();
   for (let step = 0; step <= 7; step++) {
     const tick = document.createElement('div'); tick.className = 'gauge-tick'; tick.style.bottom = `${step / 7 * 100}%`;
@@ -135,12 +160,22 @@ async function buildTerrain(nextData) {
   for (const side of ['west', 'east']) {
     const crest = data.levees?.[side];
     $(`${side}-crest`).textContent = crest === undefined ? 'Unspecified' : `${crest.toFixed(2)} m`;
-    $(`${side}-jump`).hidden = crest === undefined;
+    $(`${side}-jump`).hidden = !data.hydrograph && crest === undefined;
     $(`${side}-jump`).textContent = `${side === 'west' ? 'West' : 'East'} overtops · ${crest?.toFixed(1)} m`;
     $(`${side}-label`).hidden = !data.synthetic;
   }
-  setPlaying(false); setLevel(Math.max(data.minLevel, Math.min(data.maxLevel, 2))); resetView();
-  $('data-message').textContent = data.synthetic ? 'Synthetic terrain · illustrative flow' : `Loaded ${data.name}. All processing stays in this browser.`;
+  timelineStops = [data.levees?.west + .08, data.levees?.east + .08];
+  if (data.hydrograph) {
+    const points = data.hydrograph.points;
+    const peak = points.reduce((best, point) => point[1] > best[1] ? point : best);
+    const firstPeak = points.find((point, i) => i > 0 && i < points.length - 1 && point[1] > points[i - 1][1] && point[1] >= points[i + 1][1]);
+    timelineStops = [firstPeak?.[0] ?? 0, peak[0]];
+    $('west-jump').textContent = 'First peak';
+    $('east-jump').textContent = `Flood peak ~${peak[1].toFixed(2)} m`;
+  }
+  setPlaying(false); setTime(floodSequence.start); resetView();
+  $('loading-message').hidden = true;
+  $('data-message').textContent = data.hydrograph ? 'Gauge trace approximated from supplied Figure C1. Flood extent and timing are illustrative.' : data.synthetic ? 'Synthetic terrain · illustrative flow' : `Loaded ${data.name}. All processing stays in this browser.`;
 }
 
 function addTrees(positions) {
@@ -165,16 +200,52 @@ function resetView() {
 function setPlaying(value) {
   playing = value; $('play').textContent = value ? 'Ⅱ' : '▶'; $('play').setAttribute('aria-label', value ? 'Pause flood animation' : 'Play flood animation');
 }
-function setLevel(value) {
-  level = THREE.MathUtils.clamp(value, data.minLevel, data.maxLevel);
-  sampleFlood(floodSequence, level, waterDepths);
+function formatEventTime(hour, includeClock = true) {
+  // UTC here preserves the chart's printed clock times without inferring a zone.
+  const start = data.hydrograph.start.slice(0, 19).replace(/Z$/, '') + 'Z';
+  const clock = includeClock ? { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' } : {};
+  return new Intl.DateTimeFormat('en-AU', { day: 'numeric', month: 'short', ...clock, timeZone: 'UTC' })
+    .format(new Date(Date.parse(start) + hour * 3600000));
+}
+function drawHydrograph() {
+  if (!data?.hydrograph) return;
+  const canvas = $('hydrograph');
+  const width = canvas.clientWidth, height = canvas.clientHeight;
+  if (!width || !height) return;
+  const ratio = Math.min(devicePixelRatio, 2);
+  canvas.width = Math.round(width * ratio); canvas.height = Math.round(height * ratio);
+  const ctx = canvas.getContext('2d'); ctx.scale(ratio, ratio);
+  const left = 25, right = width - 12, top = 12, bottom = height - 20;
+  const x = hour => left + hour / floodSequence.end * (right - left);
+  const y = stage => bottom - (stage - data.minLevel) / (data.maxLevel - data.minLevel) * (bottom - top);
+  ctx.font = '10px sans-serif'; ctx.lineWidth = 1;
+  for (const stage of [0, 3, 6]) {
+    ctx.strokeStyle = '#dce2d5'; ctx.beginPath(); ctx.moveTo(left, y(stage)); ctx.lineTo(right, y(stage)); ctx.stroke();
+    ctx.fillStyle = '#71816e'; ctx.fillText(String(stage), 6, y(stage) + 3);
+  }
+  ctx.strokeStyle = '#328c9b'; ctx.lineWidth = 2; ctx.beginPath();
+  data.hydrograph.points.forEach(([hour, stage], index) => {
+    if (index === 0) ctx.moveTo(x(hour), y(stage)); else ctx.lineTo(x(hour), y(stage));
+  });
+  ctx.stroke();
+  ctx.strokeStyle = '#315b48'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x(eventTime), top); ctx.lineTo(x(eventTime), bottom); ctx.stroke();
+  ctx.fillStyle = '#315b48'; ctx.beginPath(); ctx.arc(x(eventTime), y(level), 4, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#71816e'; ctx.fillText(formatEventTime(0, false), left, height - 3); ctx.fillText(formatEventTime(floodSequence.end, false), right - 36, height - 3);
+  canvas.setAttribute('aria-label', `Approximate recorded gauge hydrograph. ${formatEventTime(eventTime)}, ${level.toFixed(2)} metres AHD.`);
+}
+function setTime(value) {
+  eventTime = THREE.MathUtils.clamp(value, floodSequence.start, floodSequence.end);
+  level = stageAtTime(data, eventTime);
+  sampleFlood(floodSequence, eventTime, waterDepths);
   waterMesh.geometry.attributes.depth.needsUpdate = true;
-  $('timeline').value = level; $('level').textContent = level.toFixed(2);
-  $('timeline').setAttribute('aria-valuetext', `${level.toFixed(2)} metres above model datum`);
+  $('timeline').value = eventTime; $('level').textContent = level.toFixed(2);
+  $('timeline').setAttribute('aria-valuetext', data.hydrograph ? `${formatEventTime(eventTime)}, approximately ${level.toFixed(2)} metres AHD` : `${level.toFixed(2)} metres above model datum`);
+  $('event-time').textContent = data.hydrograph ? formatEventTime(eventTime) : 'Follow the rising water';
+  drawHydrograph();
   const progress = (level - data.minLevel) / (data.maxLevel - data.minLevel) * 100;
   $('gauge-fill').style.height = `${progress}%`; $('gauge-marker').style.bottom = `${progress}%`;
   let area = 0, maxDepth = 0;
-  for (let i = 0; i < thresholds.length; i++) if (waterDepths[i] > .015) {
+  for (let i = 0; i < thresholds.length; i++) if (waterDepths[i] > .015 && (!data.validMask || data.validMask[i])) {
     const col = i % data.width, row = Math.floor(i / data.width);
     const edgeFactor = (col === 0 || col === data.width - 1 ? .5 : 1) * (row === 0 || row === data.height - 1 ? .5 : 1);
     area += data.cellSize ** 2 * edgeFactor; maxDepth = Math.max(maxDepth, waterDepths[i]);
@@ -188,15 +259,15 @@ function setLevel(value) {
     $(`${side}-state`).classList.toggle('overtopped', open);
     if (open) overtopped++;
   }
-  $('stage-status').textContent = !data.levees ? 'Connected inundation' : ['Within the channel', 'One levee overtopping', 'Both levees overtopping'][overtopped];
+  $('stage-status').textContent = data.hydrograph ? (eventTime >= floodSequence.end ? 'End of event' : stageAtTime(data, eventTime + .05) >= level ? 'River rising' : 'River receding') : !data.levees ? 'Connected inundation' : ['Within the channel', 'One levee overtopping', 'Both levees overtopping'][overtopped];
 }
 
-$('timeline').addEventListener('input', event => { setPlaying(false); setLevel(Number(event.target.value)); });
-$('play').addEventListener('click', () => { if (level >= data.maxLevel) setLevel(data.minLevel); setPlaying(!playing); });
-$('restart').addEventListener('click', () => { setPlaying(false); setLevel(data.minLevel); });
+$('timeline').addEventListener('input', event => { setPlaying(false); setTime(Number(event.target.value)); });
+$('play').addEventListener('click', () => { if (eventTime >= floodSequence.end) setTime(floodSequence.start); setPlaying(!playing); });
+$('restart').addEventListener('click', () => { setPlaying(false); setTime(floodSequence.start); });
 $('reset-view').addEventListener('click', resetView);
 $('top-view').addEventListener('click', () => { camera.position.set(0, extent * 1.8, 1); controls.target.set(0, 0, 0); controls.update(); });
-for (const side of ['west', 'east']) $(`${side}-jump`).addEventListener('click', () => { setPlaying(false); setLevel(data.levees[side] + .08); });
+['west', 'east'].forEach((side, index) => $(`${side}-jump`).addEventListener('click', () => { setPlaying(false); setTime(timelineStops[index]); }));
 $('export-dem').addEventListener('click', () => {
   const url = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
   const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'river-dem.json'; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -209,7 +280,10 @@ $('import-dem').addEventListener('change', async event => {
     const imported = validateDEM(JSON.parse(await file.text()));
     imported.synthetic = false;
     await buildTerrain(imported);
-  } catch (error) { $('data-message').textContent = `Could not load DEM. ${error.message}`; }
+  } catch (error) {
+    $('data-message').textContent = `Could not load DEM. ${error.message}`;
+    $('loading-message').hidden = true;
+  }
   event.target.disabled = false;
   event.target.value = '';
 });
@@ -217,21 +291,38 @@ new ResizeObserver(() => {
   const { width, height } = viewport.getBoundingClientRect();
   renderer.setSize(width, height); camera.aspect = width / height; camera.updateProjectionMatrix();
 }).observe(viewport);
+new ResizeObserver(drawHydrograph).observe($('hydrograph'));
 // Controls become available once the deterministic flood sequence is ready.
 const scenarioControls = [...document.querySelectorAll('button, input, select')];
 scenarioControls.forEach(control => { control.disabled = true; });
 try {
-  await buildTerrain(validateDEM(makeDemo()));
+  const fetchData = async path => {
+    const response = await fetch(`${import.meta.env.BASE_URL}data/${path}`);
+    if (!response.ok) throw new Error(`Could not load ${path}. Reload to retry.`);
+    return response;
+  };
+  $('data-message').textContent = 'Loading terrain and flood event…';
+  const [dem, hydrograph, metadata, binary] = await Promise.all([
+    fetchData('tweed-dem.json').then(response => response.json()),
+    fetchData('hydrograph.json').then(response => response.json()),
+    fetchData('tweed-flood.json').then(response => response.json()),
+    fetchData('tweed-flood.bin').then(response => response.arrayBuffer())
+  ]);
+  dem.hydrograph = hydrograph;
+  if (metadata.cellCount !== dem.width * dem.height || binary.byteLength !== metadata.frameCount * metadata.cellCount * 2) throw new Error('Flood data does not match the terrain. Reload to retry.');
+  const frames = Array.from({ length: metadata.frameCount }, (_, index) => new Uint16Array(binary, index * metadata.cellCount * 2, metadata.cellCount));
+  await buildTerrain(validateDEM(dem), { frames, start: metadata.start, end: metadata.end, depthScale: .001 });
   scenarioControls.forEach(control => { control.disabled = false; });
 } catch (error) {
   $('data-message').textContent = error.message;
+  $('loading-message').textContent = error.message;
   throw error;
 }
 renderer.setAnimationLoop(time => {
   const delta = Math.min((time - lastTime) / 1000, .1); lastTime = time;
   if (playing) {
-    setLevel(level + delta * Number($('speed').value) * (data.maxLevel - data.minLevel) / 40);
-    if (level >= data.maxLevel) setPlaying(false);
+    setTime(eventTime + delta * Number($('speed').value) * (floodSequence.end - floodSequence.start) / (data.hydrograph ? 90 : 40));
+    if (eventTime >= floodSequence.end) setPlaying(false);
   }
   waterMaterial.uniforms.time.value = time / 1000; controls.update();
   labelPositions.forEach((position, index) => {

@@ -1,6 +1,8 @@
 # Bathtub
 
-An interactive Three.js river flood demo using a generated DEM. Orbit the landscape, scrub the flood level, or play a 40-second rising-water sequence. The vertical gauge and inundation metrics update with the water surface. West and east levees have different crest elevations.
+An embeddable Three.js view of the Tweed River at Murwillumbah, using the supplied terrain and bathymetry DEM and an approximate trace of the recorded 2022 gauge hydrograph. Play or scrub 24 February through 3 March, including rising water, gradual spill and recession. Playback takes 90 seconds at 1×.
+
+The gauge trace is manually approximated from the supplied Figure C1 image, with a peak around 6.23 mAHD. It is not a downloaded gauge dataset. The TIFF does not identify its vertical datum, so alignment to AHD is assumed and disclosed in the app. Flood extent and timing remain illustrative and uncalibrated.
 
 ## Run locally
 
@@ -15,14 +17,15 @@ Open the local URL printed by Vite. To check and build the static site, run `npm
 
 ## GitHub Pages
 
-The repository includes a Pages deployment workflow. Create an empty GitHub repository, add its URL as `origin`, and push `main`.
+The repository is connected to `https://github.com/lachlan-m-patterson/bathtub`. Pushes to `main` run tests, build and deploy through the included Pages workflow.
 
 ```sh
-git remote add origin https://github.com/YOUR-USER/YOUR-REPO.git
-git push -u origin main
+git add .
+git commit -m "Describe the changes"
+git push
 ```
 
-In the repository's Settings → Pages, select **GitHub Actions** as the source. The included workflow builds and deploys `dist/`. Relative asset paths support repository subpaths. GitHub repository creation and remote publication are left for the repository owner.
+Live site — https://lachlan-m-patterson.github.io/bathtub/
 
 ## StoryMaps embed
 
@@ -32,7 +35,7 @@ After deployment, use the public HTTPS GitHub Pages URL in a StoryMaps embed blo
 
 ```html
 <iframe
-  src="https://YOUR-USER.github.io/YOUR-REPO/"
+  src="https://lachlan-m-patterson.github.io/bathtub/"
   title="Interactive river flood explorer"
   width="100%"
   height="760"
@@ -44,34 +47,53 @@ After deployment, use the public HTTPS GitHub Pages URL in a StoryMaps embed blo
 
 The localhost URL is for local preview. Story readers need the published HTTPS URL.
 
-## Replacing the terrain
+## Terrain and gauge preparation
 
-The app generates a deterministic 161 × 193 raster at 4 m spacing in `src/model.js`. Export DEM downloads the full example as JSON. Load DEM accepts the same format, validates it and rebuilds the scene. Processing is local to the browser.
+The source `dem_seamless.tif` has 1 m pixels, a 4 km square extent and substantial NoData outside its principal land coverage. Its coordinate-system label is GDA2020 / MGA zone 56, stored as a local CRS. The prepared view selects the land-and-river square bounded by eastings 538000–540000 and northings 6865000–6867000. The original TIFF remains at its supplied location.
 
-Required JSON fields
+`scripts/prepare-dem.py` averages this crop to a 250 × 250 grid with 8 m cells, preserving negative elevations. The resulting elevation range is approximately −14.054 to 72.911 m. Resampling smooths narrow levees and other small terrain features. Validity is stored separately from elevations, so NoData is never treated as a deep channel. This selected crop has full coverage.
+
+The river boundary is extracted as the largest connected terrain component at or below the initial 0.35 m gauge stage. One gauge stage is imposed throughout that channel, with no longitudinal water-surface slope. This boundary extraction is an approximation and is recorded in the dataset metadata.
+
+To regenerate assets, install Python packages `rasterio` and `numpy`, then run these commands from the project folder, substituting the TIFF location.
+
+```sh
+python scripts/prepare-dem.py "PATH/TO/dem_seamless.tif"
+node scripts/prepare-flood.js
+npm test
+npm run build
+```
+
+`public/data/hydrograph.json` contains editable `[hours since chart start, level in mAHD]` points traced from the black recorded series in the supplied image. Times preserve the chart's printed clock values. The image does not specify a timezone. Replace those points with a measured series when available, then rerun `node scripts/prepare-flood.js`.
+
+## Import and export
+
+Export DEM downloads the current terrain, validity mask, source metadata and hydrograph as JSON. Load DEM validates this format and computes a replacement event in a Web Worker. The original synthetic generator remains in `src/model.js` for tests and alternative examples.
 
 | Field | Meaning |
 | --- | --- |
 | `name` | Display name |
-| `width`, `height` | Integer raster dimensions, at least 3 each, up to 250,000 cells total |
+| `width`, `height` | Raster dimensions, at least 3 each, up to 250,000 cells total |
 | `cellSize` | Square cell spacing in metres |
-| `elevations` | Flat row-major array of elevations in metres, all using one vertical datum |
-| `riverSeeds` | Array of row-major indices inside the river channel |
-| `minLevel`, `maxLevel` | Slider limits in metres using the same vertical datum |
-| `levees` | Optional object with `west` and `east` crest elevations for the UI |
+| `elevations` | Finite row-major elevations in metres; negative values are supported |
+| `validMask` | Optional row-major 0/1 array; 0 excludes a cell from rendering and routing |
+| `riverSeeds` | Indices of valid river cells |
+| `minLevel`, `maxLevel` | Gauge display limits in the same vertical datum |
+| `hydrograph` | Optional object containing `start` and increasing `[hour, level]` pairs starting at hour zero |
+| `levees` | Optional `west` and `east` crest metadata for synthetic examples |
 
-For a real DEM, reproject to a metric CRS, crop and resample to a square grid, fill or crop NoData, and convert the elevation raster to this JSON structure. Supply channel seeds from a river mask or drainage extraction. Embedded levees must be resolved by the DEM. The example river and levees are synthetic, with the channel carved into the generated elevations. A real-data hydrology extraction and GeoTIFF ingestion pipeline can be added later.
-
-Rows increase along the scene's positive Z direction and columns along positive X. Geometry is centred locally, with 8× vertical exaggeration. Geographic coordinates are not currently displayed. Optional crest metadata describes the UI markers, while actual inundation is always computed from the raster.
+Rows run south and columns east in the prepared raster. The scene uses local coordinates and 8× vertical exaggeration. The real terrain displays its surveyed landforms, without decorative trees or synthetic levee labels.
 
 ## Flood behaviour
 
 A local surface-water routing model moves water between four neighbouring cells according to water-surface head differences. Each step limits outflow to the donor cell's available water. Water crosses a levee only when its local surface exceeds the next terrain elevation, then runs down the slope and spreads over the basin. Closed raster boundaries retain water. River seeds and the initially connected wet channel supply the rising river boundary.
 
-The flood sequence is computed in a Web Worker and cached in memory. Playback and scrubbing interpolate the same snapshots, including backwards scrubbing. Playback speed changes presentation speed. The 40-second animation shows 160 illustrative model seconds. Flow parameters are uncalibrated and omit momentum, rainfall and infiltration. Scrubbing backwards revisits the recorded rising event. It does not simulate a receding river.
+The default event is precomputed as 181 hourly snapshots and stored as little-endian unsigned 16-bit depths in millimetres. Playback interpolates adjacent snapshots. Backwards scrubbing revisits cached states, while forward playback includes the receding gauge stage and retained water behind terrain barriers. Imports are computed in a Web Worker.
+
+The 180-hour chart event is compressed to 480 solver seconds using uncalibrated routing parameters. The displayed dates locate the gauge trace; inundation arrival times and extent are illustrative. The model omits momentum, rainfall and infiltration. Closed crop edges and missing-data boundaries retain water. Water can drain through the prescribed river channel as its stage falls.
 
 The water mesh follows local terrain elevation plus depth, producing a sloping spill and shallow advancing front. The gauge shows the imposed river boundary level, while basin surfaces can remain lower. Levee status indicates whether the river boundary exceeds the supplied crest metadata. Local water may arrive later. Metrics use simulated depths above 0.015 m, including the channel. Maximum depth is measured across those wet cells.
 
 ## Size
 
-The DEM is generated in code and requires no imagery or GIS download. The deployable site and tracked source are well below 100 MB. Build output and installed dependencies are excluded from Git. Google Fonts are optional and system fallback fonts are available.
+The published site is approximately 25 MB, including the DEM, gauge trace and 22.6 MB of precomputed flood depths. Source and deployable assets remain below 100 MB. Build output and installed dependencies are excluded from Git. Google Fonts are optional and system fallback fonts are available.
