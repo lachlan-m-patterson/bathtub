@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { validateDEM, floodThresholds, sampleFlood, stageAtTime, waterSurfaceElevations } from './model.js';
+import { imageryRequest } from './imagery.js';
+import { waterVertexShader, waterFragmentShader } from './water-shaders.js';
 import './style.css';
 
 const $ = id => document.getElementById(id);
@@ -26,11 +28,21 @@ const verticalScale = 1.5;
 let data, thresholds, waterMaterial, waterMesh, level = 2, playing = false, extent = 800, datum = 0;
 let floodSequence, waterDepths, waterSurfaces, eventTime = 0;
 let timelineStops = [];
+let terrainMesh, terrainMaterial, aerialMaterial, imageryTexture, imageryController;
+let shorelineField, shorelineTexture;
+let aerialEnabled = true, smoothEdges = true;
 let labelPositions = [];
 let lastTime = performance.now();
 
 function terrainHeight(value) { return (value - datum) * verticalScale; }
 function clearTerrain() {
+  imageryController?.abort();
+  imageryTexture?.dispose();
+  shorelineTexture?.dispose();
+  if (terrainMaterial && terrainMesh?.material !== terrainMaterial) terrainMaterial.dispose();
+  if (aerialMaterial && terrainMesh?.material !== aerialMaterial) aerialMaterial.dispose();
+  aerialMaterial = null; imageryTexture = null;
+  $('imagery-credit').hidden = true;
   for (const child of [...terrainGroup.children]) {
     child.geometry?.dispose();
     if (Array.isArray(child.material)) child.material.forEach(material => material.dispose());
@@ -100,7 +112,9 @@ async function buildTerrain(nextData, preparedSequence) {
     geometry.setIndex(validTriangles);
   }
   geometry.computeVertexNormals();
-  terrainGroup.add(new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide })));
+  terrainMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide });
+  terrainMesh = new THREE.Mesh(geometry, terrainMaterial);
+  terrainGroup.add(terrainMesh);
   // A skirt exposes the DEM as a terrain block.
   const edge = [];
   for (let x = 0; x < width; x++) edge.push(x);
@@ -126,16 +140,18 @@ async function buildTerrain(nextData, preparedSequence) {
   // Water is extended under dry banks and clipped at the terrain intersection.
   const waterGeometry = geometry.clone();
   waterGeometry.setAttribute('surface', new THREE.BufferAttribute(waterSurfaces, 1).setUsage(THREE.DynamicDrawUsage));
+  shorelineField = new Float32Array(elevations.length);
+  shorelineTexture = new THREE.DataTexture(shorelineField, width, height, THREE.RedFormat, THREE.FloatType);
+  shorelineTexture.minFilter = THREE.NearestFilter;
+  shorelineTexture.magFilter = THREE.NearestFilter;
   waterMaterial = new THREE.ShaderMaterial({
-    uniforms: { time: { value: 0 }, datum: { value: datum }, verticalScale: { value: verticalScale } },
-    vertexShader: `attribute float surface; uniform float datum; uniform float verticalScale; varying float vDepth; varying vec2 vPosition;
-      void main(){vDepth=surface-(position.y/verticalScale+datum); vPosition=position.xz; vec3 p=position; p.y=(surface-datum)*verticalScale; gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.0);}`,
-    fragmentShader: `uniform float time; varying float vDepth; varying vec2 vPosition;
-      void main(){if(vDepth<=0.015) discard;
-      float ripple=sin(vPosition.x*.12+vPosition.y*.08-time*1.5)*sin(vPosition.y*.19-time)*.025;
-      vec3 c=mix(vec3(.36,.72,.73),vec3(.12,.43,.51),clamp(vDepth/4.0,0.0,1.0));
-      float edge=1.0-smoothstep(.015,.12,vDepth);
-      gl_FragColor=vec4(c+ripple+edge*.08,.9);}`,
+    uniforms: {
+      time: { value: 0 }, datum: { value: datum }, verticalScale: { value: verticalScale },
+      shorelineDepth: { value: shorelineTexture }, gridSize: { value: new THREE.Vector2(width, height) },
+      smoothShoreline: { value: smoothEdges ? 1 : 0 }
+    },
+    vertexShader: waterVertexShader,
+    fragmentShader: waterFragmentShader,
     transparent: true, side: THREE.DoubleSide, depthWrite: false
   });
   waterMesh = new THREE.Mesh(waterGeometry, waterMaterial); waterMesh.frustumCulled = false; waterMesh.renderOrder = 2; terrainGroup.add(waterMesh);
@@ -178,6 +194,8 @@ async function buildTerrain(nextData, preparedSequence) {
   }
   setPlaying(false); setTime(floodSequence.start); resetView();
   $('loading-message').hidden = true;
+  $('imagery-toggle').hidden = !imageryRequest(data);
+  if (imageryRequest(data) && aerialEnabled) void loadImagery(data);
   $('data-message').textContent = data.peakDepths ? 'Maximum extent, depth and height from supplied model rasters. Event timing is interpolated from the approximate gauge trace.' : data.hydrograph ? 'Gauge trace approximated from supplied Figure C1. Flood extent and timing are illustrative.' : data.synthetic ? 'Synthetic terrain · illustrative flow' : `Loaded ${data.name}. All processing stays in this browser.`;
 }
 
@@ -200,6 +218,60 @@ function resetView() {
   controls.target.set(0, extent * .04, 0); controls.minDistance = extent * .35; controls.maxDistance = extent * 4;
   camera.near = extent / 1000; camera.far = extent * 20; camera.updateProjectionMatrix(); controls.update();
 }
+
+function applyImagery() {
+  const visible = aerialEnabled && aerialMaterial;
+  terrainMesh.material = visible ? aerialMaterial : terrainMaterial;
+  $('imagery-toggle').textContent = visible ? 'Aerial imagery' : 'Terrain view';
+  $('imagery-toggle').setAttribute('aria-pressed', visible ? 'true' : 'false');
+  $('imagery-toggle').title = 'Switch between aerial imagery and terrain';
+  $('imagery-credit').hidden = !visible;
+}
+
+async function loadImagery(requestedData) {
+  const request = imageryRequest(requestedData);
+  if (!request) return;
+  imageryController?.abort();
+  const controller = new AbortController();
+  imageryController = controller;
+  $('imagery-toggle').textContent = 'Loading imagery…';
+  const timeout = setTimeout(() => controller.abort(), 45000);
+  let objectUrl;
+  try {
+    const response = await fetch(request.url, { signal: controller.signal });
+    if (!response.ok || !response.headers.get('content-type')?.startsWith('image/')) throw new Error('Imagery unavailable');
+    objectUrl = URL.createObjectURL(await response.blob());
+    const texture = await new THREE.TextureLoader().loadAsync(objectUrl);
+    if (data !== requestedData || imageryController !== controller) { texture.dispose(); return; }
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+    texture.offset.set(...request.offset); texture.repeat.set(...request.repeat);
+    imageryTexture = texture;
+    aerialMaterial = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide });
+    applyImagery();
+  } catch {
+    if (data === requestedData && imageryController === controller) {
+      $('imagery-toggle').textContent = 'Retry aerial imagery';
+      $('imagery-toggle').setAttribute('aria-pressed', 'false');
+      $('imagery-toggle').title = 'NSW imagery is unavailable. Terrain view is active. Click to retry.';
+    }
+  } finally {
+    clearTimeout(timeout);
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+  }
+}
+
+$('imagery-toggle').addEventListener('click', () => {
+  if (!aerialMaterial) { aerialEnabled = true; void loadImagery(data); return; }
+  aerialEnabled = !aerialEnabled;
+  applyImagery();
+});
+$('smooth-toggle').addEventListener('click', () => {
+  smoothEdges = !smoothEdges;
+  waterMaterial.uniforms.smoothShoreline.value = smoothEdges ? 1 : 0;
+  $('smooth-toggle').setAttribute('aria-pressed', String(smoothEdges));
+  $('smooth-toggle').textContent = smoothEdges ? 'Smooth edges' : 'Raw edges';
+});
 function setPlaying(value) {
   playing = value; $('play').textContent = value ? 'Ⅱ' : '▶'; $('play').setAttribute('aria-label', value ? 'Pause flood animation' : 'Play flood animation');
 }
@@ -242,6 +314,9 @@ function setTime(value) {
   sampleFlood(floodSequence, eventTime, waterDepths);
   waterSurfaceElevations(data, waterDepths, waterSurfaces);
   waterMesh.geometry.attributes.surface.needsUpdate = true;
+  const ground = data.modelGround ?? data.elevations;
+  for (let i = 0; i < shorelineField.length; i++) shorelineField[i] = waterSurfaces[i] - ground[i];
+  shorelineTexture.needsUpdate = true;
   $('timeline').value = eventTime; $('level').textContent = level.toFixed(2);
   $('timeline').setAttribute('aria-valuetext', data.hydrograph ? `${formatEventTime(eventTime)}, approximately ${level.toFixed(2)} metres AHD` : `${level.toFixed(2)} metres above model datum`);
   $('event-time').textContent = data.hydrograph ? formatEventTime(eventTime) : 'Follow the rising water';
