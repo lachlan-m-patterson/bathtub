@@ -299,7 +299,7 @@ const scenarioControls = [...document.querySelectorAll('button, input, select')]
 scenarioControls.forEach(control => { control.disabled = true; });
 try {
   const fetchData = async path => {
-    const response = await fetch(`${import.meta.env.BASE_URL}data/${path}?v=4m-shoreline`);
+    const response = await fetch(`${import.meta.env.BASE_URL}data/${path}?v=peak-2022`);
     if (!response.ok) throw new Error(`Could not load ${path}. Reload to retry.`);
     return response;
   };

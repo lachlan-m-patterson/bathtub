@@ -57,8 +57,9 @@ export function stageAtTime(data, time) {
 
 // Minimax Dijkstra: each cell opens at the lowest barrier along any path
 // from a river seed. Four neighbours avoid diagonal leaks through levees.
-export function floodThresholds(data) {
-  const { width, height, elevations, riverSeeds } = data;
+// Optional costs and mask replace the elevations and validMask.
+export function floodThresholds(data, elevations = data.elevations, validMask = data.validMask) {
+  const { width, height, riverSeeds } = data;
   const thresholds = new Float64Array(elevations.length).fill(Infinity);
   const heap = [];
   function push(index, level) {
@@ -99,7 +100,7 @@ export function floodThresholds(data) {
     if (row > 0) neighbours.push(index - width);
     if (row < height - 1) neighbours.push(index + width);
     for (const next of neighbours) {
-      if (data.validMask && !data.validMask[next]) continue;
+      if (validMask && !validMask[next]) continue;
       const candidate = Math.max(level, elevations[next]);
       if (candidate < thresholds[next]) { thresholds[next] = candidate; push(next, candidate); }
     }
@@ -169,6 +170,44 @@ export function createFloodSequence(data, thresholds = floodThresholds(data), op
     frames.push(depths.slice());
   }
   return { frames, start, end };
+}
+
+// Animate a modelled peak-depth raster with the gauge hydrograph. Each wet
+// cell's surface sits (peak stage - gauge stage) below its peak surface. A cell
+// joins once a wet path connects it to the river (minimax on -peakDepth), then
+// holds water at its sill when the river falls. The peak frame equals the raster.
+export function createPeakAnchoredSequence(data, peakDepths, options = {}) {
+  const count = data.elevations.length;
+  if (!data.hydrograph || peakDepths.length !== count) throw new Error('Supply a hydrograph and one peak depth per cell.');
+  const costs = new Float64Array(count), wet = new Uint8Array(count);
+  for (let i = 0; i < count; i++) {
+    wet[i] = peakDepths[i] > 0 && (!data.validMask || data.validMask[i]) ? 1 : 0;
+    costs[i] = wet[i] ? -peakDepths[i] : Infinity;
+  }
+  const seeds = data.riverSeeds.filter(i => wet[i]);
+  if (!seeds.length) throw new Error('No river seed is wet in the peak raster.');
+  const arrival = floodThresholds({ ...data, riverSeeds: seeds }, costs, wet);
+  // Wet patches with no path to the river (local ponding) fill in step with the river.
+  const fallbackArrival = -Math.max(...data.hydrograph.points.map(point => point[1]));
+  let ponded = 0;
+  for (let i = 0; i < count; i++) if (wet[i] && arrival[i] === Infinity) { arrival[i] = Math.max(costs[i], fallbackArrival); ponded++; }
+  const points = data.hydrograph.points;
+  const start = 0, end = points.at(-1)[0];
+  const peakStage = Math.max(...points.map(point => point[1]));
+  const frameCount = options.frameCount ?? 181;
+  const frames = [];
+  let reached = -Infinity;
+  for (let frame = 0; frame < frameCount; frame++) {
+    const offset = stageAtTime(data, start + frame * (end - start) / (frameCount - 1)) - peakStage;
+    reached = Math.max(reached, offset);
+    const depths = new Float32Array(count);
+    for (let i = 0; i < count; i++) {
+      if (!wet[i] || arrival[i] > reached) continue;
+      depths[i] = Math.max(0, peakDepths[i] + Math.max(offset, arrival[i]));
+    }
+    frames.push(depths);
+  }
+  return { frames, start, end, ponded, peakStage };
 }
 
 export function sampleFlood(sequence, time, output) {

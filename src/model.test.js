@@ -111,3 +111,20 @@ test('shoreline extrapolation excludes masked neighbours', () => {
   const surface = waterSurfaceElevations(data, depths, new Float32Array(9));
   assert.ok(surface[4] < 1);
 });
+
+test('peak-anchored sequence reproduces the peak raster and respects sills', async () => {
+  const { createPeakAnchoredSequence } = await import('./model.js');
+  // River | sill (shallow at peak) | basin (deep at peak)
+  const dem = { name: 'Peak', width: 3, height: 1, cellSize: 1, minLevel: 0, maxLevel: 10,
+    elevations: [0, 3, 1], riverSeeds: [0],
+    hydrograph: { start: '2022-01-01', points: [[0, 1], [1, 4], [2, 1]] } };
+  const peak = [4, 1, 3];
+  const { frames } = createPeakAnchoredSequence(dem, peak, { frameCount: 5 });
+  assert.deepEqual([...frames[2]], peak);
+  // Rising: stage 2.5 is below the 3 m sill, so the basin is still dry.
+  assert.equal(frames[1][2], 0);
+  assert.equal(frames[1][0], 2.5);
+  // Falling: the basin keeps water at the sill level (surface 3, ground 1).
+  assert.equal(frames[3][2], 2);
+  assert.equal(frames[3][1], 0);
+});

@@ -6,6 +6,6 @@
   "encoding": "uint16-le-mm",
   "compression": "gzip",
   "uncompressedBytes": 90500000,
-  "source": "Illustrative routing driven by approximately traced recorded hydrograph",
+  "source": "Modelled 2022 peak depth (Tweed_001_2022_d_Max) animated with the approximately traced recorded hydrograph",
   "simulationSeconds": 480
 }

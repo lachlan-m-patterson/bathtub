@@ -59,6 +59,7 @@ To regenerate assets, install Python packages `rasterio` and `numpy`, then run t
 
 ```sh
 python scripts/prepare-dem.py "PATH/TO/dem_seamless.tif"
+python scripts/prepare-peak.py "PATH/TO/Tweed_001_2022_d_Max_cog.tif" --level "PATH/TO/Tweed_001_2022_h_Max_cog.tif"
 node scripts/prepare-flood.js
 npm test
 npm run build
@@ -86,14 +87,16 @@ Rows run south and columns east in the prepared raster. The scene uses local coo
 
 ## Flood behaviour
 
-A local surface-water routing model moves water between four neighbouring cells according to water-surface head differences. Each step limits outflow to the donor cell's available water. Water crosses a levee only when its local surface exceeds the next terrain elevation, then runs down the slope and spreads over the basin. Closed raster boundaries retain water. River seeds and the initially connected wet channel supply the rising river boundary.
+The default event is anchored to the modelled 2022 peak: `Tweed_001_2022_d_Max` (peak depth) on the same 4 m grid as the DEM. `scripts/prepare-peak.py` clips it to the viewer bounds without resampling; `h_Max` is used only to confirm alignment (model ground h − d sits a median 0.05 m above the DEM). The peak frame reproduces the d_Max raster exactly.
+
+Between frames, each wet cell's water surface sits below its peak surface by the gauge's distance below its 6.23 mAHD peak, so the modelled water-surface slope is kept throughout. A cell joins only once a path of wet cells connects it to the river (a minimax pass over peak depth), so basins behind levees fill when the falling-offset surface clears their sill. As the river recedes, connected basins hold water at their sill level; drainage through floodgates and pumps is not represented. Wet peak cells with no wet path to the river (about 15,000 cells of local ponding) rise with the river.
 
 The default event is precomputed as 181 hourly snapshots and stored as gzip-compressed little-endian unsigned 16-bit depths in millimetres. The browser decompresses the snapshots locally. Playback interpolates adjacent snapshots. Backwards scrubbing revisits cached states, while forward playback includes the receding gauge stage and retained water behind terrain barriers. Imports are computed in a Web Worker.
 
-The 180-hour chart event is compressed to 480 solver seconds using uncalibrated routing parameters. The displayed dates locate the gauge trace; inundation arrival times and extent are illustrative. The model omits momentum, rainfall and infiltration. Closed crop edges and missing-data boundaries retain water. Water can drain through the prescribed river channel as its stage falls.
+The displayed dates locate the gauge trace. Peak extent and depths come from the flood model; timing before and after the peak is an interpolation from the gauge, not model output.
 
 The wet water mesh follows simulated water-surface elevations. At dry banks, neighbouring wet surfaces extend beneath the terrain and are clipped at the shoreline, preventing dry bank vertices from lifting water into spikes. Shallow advancing fronts remain tied to the simulated wet cells. The gauge shows the imposed river boundary level, while basin surfaces can remain lower. Levee status indicates whether the river boundary exceeds the supplied crest metadata. Local water may arrive later. Metrics use simulated depths above 0.015 m, including the channel. Maximum depth is measured across those wet cells.
 
 ## Size
 
-The published site is approximately 25 MB, including the DEM, gauge trace and 22.6 MB of precomputed flood depths. Source and deployable assets remain below 100 MB. Build output and installed dependencies are excluded from Git. Google Fonts are optional and system fallback fonts are available.
+The published site is approximately 28 MB, including the DEM, gauge trace and 25.6 MB of precomputed flood depths. Source TIFFs are excluded from Git; the clipped peak depth raster (`scripts/data/tweed-peak-depth.bin`, 0.5 MB) is kept for regeneration. Source and deployable assets remain below 100 MB. Build output and installed dependencies are excluded from Git. Google Fonts are optional and system fallback fonts are available.
