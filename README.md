@@ -105,12 +105,12 @@ The wet water mesh follows simulated water-surface elevations. At dry banks, nei
 
 ## Aerial imagery and shoreline appearance
 
-The default view requests a 4096 × 4096 JPEG from NSW Spatial Services' public NSW Imagery map service, exported in GDA2020 / MGA zone 56 to the same bounds as the terrain. UV offsets align the image with DEM cell centres. The aerial image is draped over the 3D ground and has approximately 0.5 m pixel spacing over this crop. Capture date is unverified, so it is labelled reference imagery. Source attribution is displayed in the viewer. [NSW imagery service](https://maps.six.nsw.gov.au/arcgis/rest/services/public/NSW_Imagery/MapServer)
+The default view uses a bundled 4096 × 4096 JPEG exported from NSW Spatial Services' public NSW Imagery map service in GDA2020 / MGA zone 56, with the same bounds as the terrain. Vite publishes it as a content-hashed asset alongside the application. UV offsets align the image with DEM cell centres. The aerial image is draped over the 3D ground and has approximately 0.5 m pixel spacing over this crop. Capture date is unverified, so it is labelled reference imagery. Source attribution is displayed in the viewer. [NSW imagery service](https://maps.six.nsw.gov.au/arcgis/rest/services/public/NSW_Imagery/MapServer)
 
-The imagery is fetched directly by the browser, takes about 5.2 MB per uncached load, and depends on that service being available. A terrain view and retry control are available. The aerial/terrain toggle preserves the current event position and camera view.
+The bundled imagery adds about 5.2 MB to the site and loads from GitHub Pages. Other imported GDA2020 crops can request imagery from the public map service. A terrain view and retry control are available. The aerial/terrain toggle preserves the current event position and camera view.
 
 Smooth edges uses bounded cubic interpolation of the shoreline depth field, screen-space antialiasing and shallow-water transparency. It trims and feathers the rendered edge within the original wet surface. This is a display treatment; stored flood depths, maximum surfaces and metrics still use the supplied raster data. Use the Smooth edges / Raw edges toggle to compare. Water colours and ripple contrast are subdued to suit aerial imagery.
 
 ## Size
 
-The published site is approximately 31.2 MB, including the DEM, gauge trace and 25.6 MB of precomputed flood depths. Source TIFFs are excluded from Git; the clipped peak depth raster (`scripts/data/tweed-peak-depth.bin`, 0.5 MB) is kept for regeneration. Source and deployable assets remain below 100 MB. Build output and installed dependencies are excluded from Git. Google Fonts are optional and system fallback fonts are available.
+The published site is approximately 36.4 MB, including the DEM, gauge trace and 25.6 MB of precomputed flood depths. Source TIFFs are excluded from Git; the clipped peak depth raster (`scripts/data/tweed-peak-depth.bin`, 0.5 MB) is kept for regeneration. Source and deployable assets remain below 100 MB. Build output and installed dependencies are excluded from Git. Google Fonts are optional and system fallback fonts are available.

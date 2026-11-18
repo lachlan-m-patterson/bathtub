@@ -21,3 +21,11 @@ test('imagery is unavailable for unreferenced or incompatible terrain', () => {
   assert.equal(imageryRequest({ cellSize: 4 }), null);
   assert.equal(imageryRequest({ cellSize: 4, source: { crsWkt: 'GDA94', bounds: [1,2,3,4] } }), null);
 });
+
+test('the default crop loads the bundled image and other crops use the map service', () => {
+  const data = { cellSize: 4, source: { crsWkt: 'GDA2020 / MGA zone 56', bounds: [538000,6865000,540000,6867000] } };
+  const localUrl = '/bathtub/assets/tweed-aerial-hash.jpg';
+  assert.equal(imageryRequest(data, localUrl).url, localUrl);
+  const other = { ...data, source: { ...data.source, bounds: [537000,6865000,539000,6867000] } };
+  assert.ok(imageryRequest(other, localUrl).url.startsWith('https://maps.six.nsw.gov.au/'));
+});

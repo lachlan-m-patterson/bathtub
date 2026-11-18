@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { validateDEM, floodThresholds, sampleFlood, stageAtTime, waterSurfaceElevations } from './model.js';
 import { imageryRequest } from './imagery.js';
 import { waterVertexShader, waterFragmentShader } from './water-shaders.js';
+import aerialImageUrl from './assets/tweed-aerial.jpg';
 import './style.css';
 
 const $ = id => document.getElementById(id);
@@ -194,8 +195,8 @@ async function buildTerrain(nextData, preparedSequence) {
   }
   setPlaying(false); setTime(floodSequence.start); resetView();
   $('loading-message').hidden = true;
-  $('imagery-toggle').hidden = !imageryRequest(data);
-  if (imageryRequest(data) && aerialEnabled) void loadImagery(data);
+  $('imagery-toggle').hidden = !imageryRequest(data, aerialImageUrl);
+  if (imageryRequest(data, aerialImageUrl) && aerialEnabled) void loadImagery(data);
   $('data-message').textContent = data.peakDepths ? 'Maximum extent, depth and height from supplied model rasters. Event timing is interpolated from the approximate gauge trace.' : data.hydrograph ? 'Gauge trace approximated from supplied Figure C1. Flood extent and timing are illustrative.' : data.synthetic ? 'Synthetic terrain · illustrative flow' : `Loaded ${data.name}. All processing stays in this browser.`;
 }
 
@@ -229,7 +230,7 @@ function applyImagery() {
 }
 
 async function loadImagery(requestedData) {
-  const request = imageryRequest(requestedData);
+  const request = imageryRequest(requestedData, aerialImageUrl);
   if (!request) return;
   imageryController?.abort();
   const controller = new AbortController();
@@ -253,7 +254,7 @@ async function loadImagery(requestedData) {
     if (data === requestedData && imageryController === controller) {
       $('imagery-toggle').textContent = 'Retry aerial imagery';
       $('imagery-toggle').setAttribute('aria-pressed', 'false');
-      $('imagery-toggle').title = 'NSW imagery is unavailable. Terrain view is active. Click to retry.';
+      $('imagery-toggle').title = 'The aerial image could not be loaded. Terrain view is active. Click to retry.';
     }
   } finally {
     clearTimeout(timeout);
