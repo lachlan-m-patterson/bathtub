@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { validateDEM, floodThresholds, sampleFlood, stageAtTime, waterSurfaceElevations } from './model.js';
 import { imageryRequest } from './imagery.js';
 import { waterVertexShader, waterFragmentShader } from './water-shaders.js';
@@ -25,6 +26,9 @@ scene.add(new THREE.HemisphereLight('#fffef0', '#607654', 2.3));
 const sun = new THREE.DirectionalLight('#fff4d8', 3.1);
 sun.position.set(-300, 600, 200); scene.add(sun);
 const terrainGroup = new THREE.Group(); scene.add(terrainGroup);
+// LiDAR building boxes live outside terrainGroup so DEM rebuilds keep them.
+const buildingGroup = new THREE.Group(); buildingGroup.visible = false; scene.add(buildingGroup);
+let buildingOrigin = null, buildingsEnabled = true;
 const verticalScale = 1.5;
 let data, thresholds, waterMaterial, waterMesh, level = 2, playing = false, extent = 800, datum = 0;
 let floodSequence, waterDepths, waterSurfaces, eventTime = 0;
@@ -193,6 +197,7 @@ async function buildTerrain(nextData, preparedSequence) {
     $('west-jump').textContent = 'First peak';
     $('east-jump').textContent = data.peakDepths ? 'Maximum flood envelope' : `Flood peak ~${peak[1].toFixed(2)} m`;
   }
+  placeBuildings();
   setPlaying(false); setTime(floodSequence.start); resetView();
   $('loading-message').hidden = true;
   $('imagery-toggle').hidden = !imageryRequest(data, aerialImageUrl);
@@ -262,6 +267,49 @@ async function loadImagery(requestedData) {
   }
 }
 
+// Model (0,0,0) is the georeference origin; the scene centre is the DEM bounds centre.
+// Only the vertical axis carries the relief exaggeration, matching the terrain.
+function placeBuildings() {
+  const bounds = data?.source?.bounds;
+  const [east, north, elevation] = buildingOrigin ?? [];
+  const covers = bounds && buildingOrigin && east >= bounds[0] && east <= bounds[2] && north >= bounds[1] && north <= bounds[3];
+  $('buildings-toggle').hidden = !covers;
+  buildingGroup.visible = Boolean(covers && buildingsEnabled);
+  if (!covers) return;
+  buildingGroup.position.set(east - (bounds[0] + bounds[2]) / 2, (elevation - datum) * verticalScale, (bounds[1] + bounds[3]) / 2 - north);
+}
+async function loadBuildings(fetchData) {
+  const [georeference, glb] = await Promise.all([
+    fetchData('georeference.json').then(response => response.json()),
+    fetchData('buildings.glb').then(response => response.arrayBuffer())
+  ]);
+  if (georeference.working_crs?.epsg !== 7856) throw new Error('Buildings are not in GDA2020 / MGA zone 56.');
+  const gltf = await new GLTFLoader().parseAsync(glb, '');
+  // Exaggerate only each base elevation so buildings sit on the scaled terrain;
+  // building heights stay true to scale.
+  const matrix = new THREE.Matrix4(), position = new THREE.Vector3(), rotation = new THREE.Quaternion(), size = new THREE.Vector3();
+  gltf.scene.traverse(object => {
+    if (!object.isMesh) return;
+    object.material = new THREE.MeshStandardMaterial({ color: '#e4ded2', roughness: .9 });
+    object.frustumCulled = false;
+    if (!object.isInstancedMesh) return;
+    for (let i = 0; i < object.count; i++) {
+      object.getMatrixAt(i, matrix);
+      matrix.decompose(position, rotation, size);
+      position.y *= verticalScale;
+      object.setMatrixAt(i, matrix.compose(position, rotation, size));
+    }
+    object.instanceMatrix.needsUpdate = true;
+  });
+  buildingGroup.add(gltf.scene);
+  buildingOrigin = georeference.origin.working_easting_northing_elevation;
+  placeBuildings();
+}
+$('buildings-toggle').addEventListener('click', () => {
+  buildingsEnabled = !buildingsEnabled;
+  $('buildings-toggle').setAttribute('aria-pressed', String(buildingsEnabled));
+  placeBuildings();
+});
 $('imagery-toggle').addEventListener('click', () => {
   if (!aerialMaterial) { aerialEnabled = true; void loadImagery(data); return; }
   aerialEnabled = !aerialEnabled;
@@ -398,6 +446,8 @@ try {
   const frames = Array.from({ length: metadata.frameCount }, (_, index) => new Uint16Array(binary, index * metadata.cellCount * 2, metadata.cellCount));
   await buildTerrain(validateDEM(dem), { frames, start: metadata.start, end: metadata.end, depthScale: .001 });
   scenarioControls.forEach(control => { control.disabled = false; });
+  // Buildings are optional; the flood view stays usable if they fail.
+  loadBuildings(fetchData).catch(error => console.warn('Buildings unavailable:', error));
 } catch (error) {
   $('data-message').textContent = error.message;
   $('loading-message').textContent = error.message;

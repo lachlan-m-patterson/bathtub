@@ -1,0 +1,87 @@
+{
+  "schema": "lidarboxes-georeference/1",
+  "source_files": [
+    {
+      "file": "lidar.laz",
+      "crs_name": "GDA2020 / MGA zone 56",
+      "crs_epsg": 7856,
+      "crs_wkt": "PROJCRS[\"GDA2020 / MGA zone 56\",BASEGEOGCRS[\"GDA2020\",DATUM[\"Geocentric Datum of Australia 2020\",ELLIPSOID[\"GRS 1980\",6378137,298.257222101,LENGTHUNIT[\"metre\",1]]],PRIMEM[\"Greenwich\",0,ANGLEUNIT[\"degree\",0.0174532925199433]],ID[\"EPSG\",7844]],CONVERSION[\"UTM zone 56S\",METHOD[\"Transverse Mercator\",ID[\"EPSG\",9807]],PARAMETER[\"Latitude of natural origin\",0,ANGLEUNIT[\"degree\",0.0174532925199433],ID[\"EPSG\",8801]],PARAMETER[\"Longitude of natural origin\",153,ANGLEUNIT[\"degree\",0.0174532925199433],ID[\"EPSG\",8802]],PARAMETER[\"Scale factor at natural origin\",0.9996,SCALEUNIT[\"unity\",1],ID[\"EPSG\",8805]],PARAMETER[\"False easting\",500000,LENGTHUNIT[\"metre\",1],ID[\"EPSG\",8806]],PARAMETER[\"False northing\",10000000,LENGTHUNIT[\"metre\",1],ID[\"EPSG\",8807]]],CS[Cartesian,2],AXIS[\"easting\",east,ORDER[1],LENGTHUNIT[\"metre\",1]],AXIS[\"northing\",north,ORDER[2],LENGTHUNIT[\"metre\",1]],ID[\"EPSG\",7856]]",
+      "header_crs_present": true,
+      "notes": []
+    }
+  ],
+  "working_crs": {
+    "name": "GDA2020 / MGA zone 56",
+    "epsg": 7856,
+    "wkt": "PROJCRS[\"GDA2020 / MGA zone 56\",BASEGEOGCRS[\"GDA2020\",DATUM[\"Geocentric Datum of Australia 2020\",ELLIPSOID[\"GRS 1980\",6378137,298.257222101,LENGTHUNIT[\"metre\",1]]],PRIMEM[\"Greenwich\",0,ANGLEUNIT[\"degree\",0.0174532925199433]],ID[\"EPSG\",7844]],CONVERSION[\"UTM zone 56S\",METHOD[\"Transverse Mercator\",ID[\"EPSG\",9807]],PARAMETER[\"Latitude of natural origin\",0,ANGLEUNIT[\"degree\",0.0174532925199433],ID[\"EPSG\",8801]],PARAMETER[\"Longitude of natural origin\",153,ANGLEUNIT[\"degree\",0.0174532925199433],ID[\"EPSG\",8802]],PARAMETER[\"Scale factor at natural origin\",0.9996,SCALEUNIT[\"unity\",1],ID[\"EPSG\",8805]],PARAMETER[\"False easting\",500000,LENGTHUNIT[\"metre\",1],ID[\"EPSG\",8806]],PARAMETER[\"False northing\",10000000,LENGTHUNIT[\"metre\",1],ID[\"EPSG\",8807]]],CS[Cartesian,2],AXIS[\"easting\",east,ORDER[1],LENGTHUNIT[\"metre\",1]],AXIS[\"northing\",north,ORDER[2],LENGTHUNIT[\"metre\",1]],ID[\"EPSG\",7856]]",
+    "units": "metre",
+    "axis_order_used": "easting, northing (pyproj always_xy=True)"
+  },
+  "source_to_working_horizontal": "identity",
+  "vertical": {
+    "datum": "unknown",
+    "unit": "metre",
+    "source_unit_handling": [
+      "ASSUMPTION: no vertical CRS in header; z assumed to use the horizontal unit (metre). Override with --z-unit."
+    ],
+    "transformation": "none: LAS elevations are only unit-scaled to metres",
+    "warning": "Elevations are in the source vertical reference (UNKNOWN; not declared in the LAS header). They are not WGS84 ellipsoidal heights; convert (e.g. add a geoid separation) before placing on an ellipsoid-height globe."
+  },
+  "origin": {
+    "working_easting_northing_elevation": [
+      539000.0,
+      6866000.0,
+      5.0
+    ],
+    "wgs84_longitude_latitude": [
+      153.3978766193122,
+      -28.331594999180865
+    ],
+    "note": "Model (0,0,0) is this point. Rounded to 100 m / 1 m for readability; exact values."
+  },
+  "model_axes": {
+    "handedness": "right-handed",
+    "up": "+Y",
+    "units": "metre (grid metres of the working CRS)",
+    "x": "+grid easting",
+    "y": "+elevation",
+    "z": "+grid SOUTH (i.e. -Z points to grid north)",
+    "forward": [
+      "x = easting - origin_easting",
+      "y = elevation - origin_elevation",
+      "z = -(northing - origin_northing)"
+    ],
+    "inverse": [
+      "easting = origin_easting + x",
+      "northing = origin_northing - z",
+      "elevation = origin_elevation + y"
+    ]
+  },
+  "glb": {
+    "mesh": "one shared unit box: x,z in [-0.5,0.5], y in [0,1] (base-anchored)",
+    "instancing": "EXT_mesh_gpu_instancing (required). buildings_compat.glb (optional) uses one node per building instead.",
+    "translation": "model position of the footprint centre at base elevation",
+    "rotation": "unit quaternion (0, sin(a/2), 0, cos(a/2)) with a = rotation_deg in radians: yaw about +Y only",
+    "scale": "(length_m, height_m, width_m): local +X = length axis, +Y = height, +Z = width axis",
+    "float_precision": "float32 model coordinates relative to the origin (~1e-4 m within a few km)"
+  },
+  "rotation_convention": "rotation_deg: degrees, counter-clockwise viewed from above, from the +grid-easting axis to the box length axis, range [0,180) (a rectangle repeats every 180 deg). Relative to GRID north of the working CRS, not true north. true_bearing_deg in buildings.csv.gz is the length-axis bearing clockwise from TRUE north, [0,180).",
+  "grid_convergence_at_origin_deg": 0.18882387456299474,
+  "grid_convergence_definition": "bearing of true north measured clockwise from grid north; true_bearing = grid_bearing - convergence",
+  "point_scale_factor_at_origin": 0.9996187712435122,
+  "scale_note": "Model distances are projection grid distances; ellipsoidal ground distance ~= grid distance / scale factor.",
+  "lonlat_procedure": "pyproj.Transformer.from_crs(working_crs, 'EPSG:4326', always_xy=True).transform(easting, northing) -> (longitude, latitude) in degrees. Horizontal only.",
+  "lonlat_pipeline": "unavailable until proj_trans is called",
+  "placement_instructions": [
+    "A GLB does not position itself on a map: use the origin and conventions in this file.",
+    "Option A (projected-CRS renderers / GIS): place model point (x,y,z) at easting=E0+x, northing=N0-z, elevation=H0+y in the working CRS.",
+    "Option B (globe / ENU renderers): build an East-North-Up frame at origin.wgs84_longitude_latitude with height = origin elevation converted to the renderer's height reference; map glTF +X->East, +Y->Up, -Z->North; then yaw the model by +grid_convergence_at_origin_deg (counter-clockwise from above) so grid north lines up with true north, and optionally scale horizontally by 1/point_scale_factor_at_origin. Residual distortion grows with distance from the origin.",
+    "Option C: place buildings individually from footprints.geojson (WGS84 lon/lat) or buildings.csv.gz.",
+    "Verify alignment against independent map data before relying on it; this tool has not verified it."
+  ],
+  "instance_mapping": "GLB instance i (accessor element i) <-> buildings.csv.gz row with instance_index == i; building_id is derived from the rounded centre and is stable across reruns with identical results.",
+  "tool": {
+    "name": "lidarboxes",
+    "version": "1.0.0"
+  }
+}

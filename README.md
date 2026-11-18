@@ -111,6 +111,10 @@ The bundled imagery adds about 5.2 MB to the site and loads from GitHub Pages. O
 
 Smooth edges uses bounded cubic interpolation of the shoreline depth field, screen-space antialiasing and shallow-water transparency. It trims and feathers the rendered edge within the original wet surface. This is a display treatment; stored flood depths, maximum surfaces and metrics still use the supplied raster data. Use the Smooth edges / Raw edges toggle to compare. Water colours and ripple contrast are subdued to suit aerial imagery.
 
+## Buildings
+
+`public/data/buildings.glb` holds 1,424 LiDAR-derived building boxes as one instanced unit box (`EXT_mesh_gpu_instancing`). `public/data/georeference.json` places them: model (0, 0, 0) is 539000 E, 6866000 N, 5 m elevation in GDA2020 / MGA zone 56, with +X east, +Y up and +Z grid south. The viewer offsets the group from the DEM bounds centre. Base elevations take the terrain's vertical exaggeration so buildings stay on the ground, but building heights are drawn at true scale. Box heights are LiDAR roof-top heights (median 5.9 m for houses), so pitched-roof houses look bulkier than they are. Building bases sit a median 0.7 m below the 4 m averaged DEM, which keeps them grounded on slopes. The LiDAR vertical datum is undeclared and assumed to match the DEM. The **Buildings** button hides them, and they appear only when the loaded DEM covers the georeference origin.
+
 ## Size
 
 The published site is approximately 36.4 MB, including the DEM, gauge trace and 25.6 MB of precomputed flood depths. Source TIFFs are excluded from Git; the clipped peak depth raster (`scripts/data/tweed-peak-depth.bin`, 0.5 MB) is kept for regeneration. Source and deployable assets remain below 100 MB. Build output and installed dependencies are excluded from Git. Google Fonts are optional and system fallback fonts are available.
