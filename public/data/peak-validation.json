@@ -1,0 +1,16 @@
+{
+  "sourceDepth": "Tweed_001_2022_d_Max_cog.tif",
+  "sourceLevel": "Tweed_001_2022_h_Max_cog.tif",
+  "sourceCRS": "EPSG:28356",
+  "targetCRS": "EPSG:7856",
+  "resampling": "nearest",
+  "wetCells": 169988,
+  "wetAreaHectares": 271.9808,
+  "maximumDepth": 19.252,
+  "groundAdjustmentMedian": 0.04800000000000004,
+  "groundAdjustmentMinimum": -5.646,
+  "groundAdjustmentMaximum": 5.056,
+  "maximumHeightErrorMetres": 2.3651123193246804e-07,
+  "interpretation": "Per-cell maximum flood envelope; animation timing is illustrative",
+  "terrain": "Model ground h_Max minus d_Max inside the wet envelope; supplied survey DEM outside"
+}

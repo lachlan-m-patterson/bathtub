@@ -64,10 +64,11 @@ async function buildTerrain(nextData, preparedSequence) {
   floodSequence = nextSequence; waterDepths = new Float32Array(data.elevations.length);
   waterSurfaces = new Float32Array(data.elevations.length);
   datum = Infinity;
+  const elevations = data.modelGround ?? data.elevations;
   for (let i = 0; i < data.elevations.length; i++) {
-    if (!data.validMask || data.validMask[i]) datum = Math.min(datum, data.elevations[i]);
+    if (!data.validMask || data.validMask[i]) datum = Math.min(datum, elevations[i]);
   }
-  const { width, height, cellSize, elevations } = data;
+  const { width, height, cellSize } = data;
   extent = Math.max(width, height) * cellSize;
   const geometry = new THREE.PlaneGeometry((width - 1) * cellSize, (height - 1) * cellSize, width - 1, height - 1);
   geometry.rotateX(-Math.PI / 2);
@@ -128,7 +129,7 @@ async function buildTerrain(nextData, preparedSequence) {
   waterMaterial = new THREE.ShaderMaterial({
     uniforms: { time: { value: 0 }, datum: { value: datum }, verticalScale: { value: verticalScale } },
     vertexShader: `attribute float surface; uniform float datum; uniform float verticalScale; varying float vDepth; varying vec2 vPosition;
-      void main(){vDepth=surface-(position.y/verticalScale+datum); vPosition=position.xz; vec3 p=position; p.y=(surface-datum)*verticalScale+0.025; gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.0);}`,
+      void main(){vDepth=surface-(position.y/verticalScale+datum); vPosition=position.xz; vec3 p=position; p.y=(surface-datum)*verticalScale; gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.0);}`,
     fragmentShader: `uniform float time; varying float vDepth; varying vec2 vPosition;
       void main(){if(vDepth<=0.015) discard;
       float ripple=sin(vPosition.x*.12+vPosition.y*.08-time*1.5)*sin(vPosition.y*.19-time)*.025;
@@ -150,6 +151,7 @@ async function buildTerrain(nextData, preparedSequence) {
   $('hydrograph-panel').hidden = !data.hydrograph;
   $('survey-note').hidden = !data.source;
   $('survey-note').textContent = data.source ? `${data.source.resolutionMetres ?? 'Unknown'} m source DEM averaged to ${cellSize} m. Negative elevations retained. ${data.verticalDatum ?? 'Vertical datum unspecified.'}` : '';
+  if (data.source?.peakModel) $('survey-note').textContent = '4 m terrain. Inside the flood envelope, ground is derived from h_Max − d_Max so both supplied maximum heights and depths agree. Survey terrain is retained outside.';
   document.querySelector('.basins').hidden = !data.levees;
   $('levee-legend').hidden = !data.synthetic;
   $('gauge-ticks').replaceChildren();
@@ -172,11 +174,11 @@ async function buildTerrain(nextData, preparedSequence) {
     const firstPeak = points.find((point, i) => i > 0 && i < points.length - 1 && point[1] > points[i - 1][1] && point[1] >= points[i + 1][1]);
     timelineStops = [firstPeak?.[0] ?? 0, peak[0]];
     $('west-jump').textContent = 'First peak';
-    $('east-jump').textContent = `Flood peak ~${peak[1].toFixed(2)} m`;
+    $('east-jump').textContent = data.peakDepths ? 'Maximum flood envelope' : `Flood peak ~${peak[1].toFixed(2)} m`;
   }
   setPlaying(false); setTime(floodSequence.start); resetView();
   $('loading-message').hidden = true;
-  $('data-message').textContent = data.hydrograph ? 'Gauge trace approximated from supplied Figure C1. Flood extent and timing are illustrative.' : data.synthetic ? 'Synthetic terrain · illustrative flow' : `Loaded ${data.name}. All processing stays in this browser.`;
+  $('data-message').textContent = data.peakDepths ? 'Maximum extent, depth and height from supplied model rasters. Event timing is interpolated from the approximate gauge trace.' : data.hydrograph ? 'Gauge trace approximated from supplied Figure C1. Flood extent and timing are illustrative.' : data.synthetic ? 'Synthetic terrain · illustrative flow' : `Loaded ${data.name}. All processing stays in this browser.`;
 }
 
 function addTrees(positions) {
@@ -299,7 +301,7 @@ const scenarioControls = [...document.querySelectorAll('button, input, select')]
 scenarioControls.forEach(control => { control.disabled = true; });
 try {
   const fetchData = async path => {
-    const response = await fetch(`${import.meta.env.BASE_URL}data/${path}?v=peak-2022`);
+    const response = await fetch(`${import.meta.env.BASE_URL}data/${path}?v=peak-height-depth-2022`);
     if (!response.ok) throw new Error(`Could not load ${path}. Reload to retry.`);
     return response;
   };

@@ -128,3 +128,10 @@ test('peak-anchored sequence reproduces the peak raster and respects sills', asy
   assert.equal(frames[3][2], 2);
   assert.equal(frames[3][1], 0);
 });
+
+test('water heights use model ground when maximum rasters differ from the survey', () => {
+  const dem = { width: 3, height: 1, elevations: [4, 8, 2], modelGround: [1, 3, 2] };
+  const surfaces = waterSurfaceElevations(dem, new Float32Array([5, 3, 4]), new Float32Array(3));
+  assert.deepEqual([...surfaces], [6, 6, 6]);
+  assert.deepEqual(dem.elevations, [4, 8, 2], 'preserve the original survey elevations');
+});

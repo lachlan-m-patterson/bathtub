@@ -6,6 +6,7 @@
   "encoding": "uint16-le-mm",
   "compression": "gzip",
   "uncompressedBytes": 90500000,
-  "source": "Modelled 2022 peak depth (Tweed_001_2022_d_Max) animated with the approximately traced recorded hydrograph",
-  "simulationSeconds": 480
+  "source": "Aligned modelled 2022 maximum depth and height rasters animated with the approximately traced recorded hydrograph",
+  "peakFrame": 112,
+  "interpretation": "Maximum envelope; interpolated event timing"
 }

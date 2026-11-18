@@ -30,6 +30,8 @@ export function validateDEM(data) {
   if (!Number.isFinite(data.minLevel) || !Number.isFinite(data.maxLevel) || data.maxLevel <= data.minLevel) throw new Error('Supply minLevel and maxLevel in elevation metres, with maxLevel greater than minLevel.');
   if (typeof data.name !== 'string' || !data.name.trim()) throw new Error('Supply a dataset name.');
   if (data.levees && !['west', 'east'].every(side => Number.isFinite(data.levees[side]))) throw new Error('Optional levees must contain numeric west and east crest elevations.');
+  if (data.modelGround && (!Array.isArray(data.modelGround) || data.modelGround.length !== data.elevations.length || !data.modelGround.every(Number.isFinite))) throw new Error('modelGround must contain one finite elevation per cell.');
+  if (data.peakDepths && (!Array.isArray(data.peakDepths) || data.peakDepths.length !== data.elevations.length || !data.peakDepths.every(value => Number.isFinite(value) && value >= 0))) throw new Error('peakDepths must contain one nonnegative finite depth per cell.');
   if (data.validMask && data.riverSeeds.some(i => !data.validMask[i])) throw new Error('River seeds must be inside valid terrain.');
   if (data.hydrograph) {
     const points = data.hydrograph.points;
@@ -223,7 +225,8 @@ export function sampleFlood(sequence, time, output) {
 // Extend the nearby wet surface under dry banks, then clip it against terrain
 // in the shader. Dry bank elevations must not lift the water into triangles.
 export function waterSurfaceElevations(data, depths, output) {
-  const { width, height, elevations, validMask } = data;
+  const { width, height, validMask } = data;
+  const elevations = data.modelGround ?? data.elevations;
   for (let i = 0; i < depths.length; i++) {
     if (depths[i] > .015 && (!validMask || validMask[i])) {
       output[i] = elevations[i] + depths[i];

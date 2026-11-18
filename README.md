@@ -87,16 +87,22 @@ Rows run south and columns east in the prepared raster. The scene uses local coo
 
 ## Flood behaviour
 
-The default event is anchored to the modelled 2022 peak: `Tweed_001_2022_d_Max` (peak depth) on the same 4 m grid as the DEM. `scripts/prepare-peak.py` clips it to the viewer bounds without resampling; `h_Max` is used only to confirm alignment (model ground h − d sits a median 0.05 m above the DEM). The peak frame reproduces the d_Max raster exactly.
+The default maximum flood envelope uses both `Tweed_001_2022_d_Max` (depth) and `Tweed_001_2022_h_Max` (water elevation). `scripts/prepare-peak.py` interprets their GDA94 / MGA zone 56 labels as EPSG:28356 and reprojects to the DEM's GDA2020 / MGA zone 56 grid (EPSG:7856), using nearest-neighbour sampling to retain the 4 m model results. The datum shift near the crop centre is about 0.58 m east and 1.38 m north.
+
+The survey ground and flood-model ground differ locally. Within positive-depth cells, the rendered ground is derived from h_Max minus d_Max. The original survey elevations remain in `elevations` and are used outside the modelled wet extent. `modelGround` and `peakDepths` are also included in DEM exports so reimporting preserves the maximum envelope. This terrain adjustment has a median of +0.048 m and ranges from −5.646 to +5.056 m in this crop. It makes the displayed water heights and depths consistent with both supplied model rasters.
+
+The aligned envelope has 169,988 wet cells (271.9808 ha before half-width display boundary weighting), with maximum depth 19.252 m. `public/data/peak-validation.json` records source names, CRS alignment and numerical checks. The published binary's peak frame is regression-tested against the prepared model data to within 1 mm.
+
+Maximum rasters record each cell's maximum over the event, which need not occur simultaneously. The viewer shows this envelope at the gauge's highest point for comparison. It is labelled **Maximum flood envelope**.
 
 Between frames, each wet cell's water surface sits below its peak surface by the gauge's distance below its 6.23 mAHD peak, so the modelled water-surface slope is kept throughout. A cell joins only once a path of wet cells connects it to the river (a minimax pass over peak depth), so basins behind levees fill when the falling-offset surface clears their sill. As the river recedes, connected basins hold water at their sill level; drainage through floodgates and pumps is not represented. Wet peak cells with no wet path to the river (about 15,000 cells of local ponding) rise with the river.
 
 The default event is precomputed as 181 hourly snapshots and stored as gzip-compressed little-endian unsigned 16-bit depths in millimetres. The browser decompresses the snapshots locally. Playback interpolates adjacent snapshots. Backwards scrubbing revisits cached states, while forward playback includes the receding gauge stage and retained water behind terrain barriers. Imports are computed in a Web Worker.
 
-The displayed dates locate the gauge trace. Peak extent and depths come from the flood model; timing before and after the peak is an interpolation from the gauge, not model output.
+The displayed dates locate the gauge trace. Maximum extent, depths and heights come from the flood model; timing before and after the peak is an interpolation from the gauge, not model output.
 
 The wet water mesh follows simulated water-surface elevations. At dry banks, neighbouring wet surfaces extend beneath the terrain and are clipped at the shoreline, preventing dry bank vertices from lifting water into spikes. Shallow advancing fronts remain tied to the simulated wet cells. The gauge shows the imposed river boundary level, while basin surfaces can remain lower. Levee status indicates whether the river boundary exceeds the supplied crest metadata. Local water may arrive later. Metrics use simulated depths above 0.015 m, including the channel. Maximum depth is measured across those wet cells.
 
 ## Size
 
-The published site is approximately 28 MB, including the DEM, gauge trace and 25.6 MB of precomputed flood depths. Source TIFFs are excluded from Git; the clipped peak depth raster (`scripts/data/tweed-peak-depth.bin`, 0.5 MB) is kept for regeneration. Source and deployable assets remain below 100 MB. Build output and installed dependencies are excluded from Git. Google Fonts are optional and system fallback fonts are available.
+The published site is approximately 31.2 MB, including the DEM, gauge trace and 25.6 MB of precomputed flood depths. Source TIFFs are excluded from Git; the clipped peak depth raster (`scripts/data/tweed-peak-depth.bin`, 0.5 MB) is kept for regeneration. Source and deployable assets remain below 100 MB. Build output and installed dependencies are excluded from Git. Google Fonts are optional and system fallback fonts are available.

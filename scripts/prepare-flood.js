@@ -6,10 +6,9 @@ const dem = JSON.parse(await readFile('public/data/tweed-dem.json', 'utf8'));
 dem.hydrograph = JSON.parse(await readFile('public/data/hydrograph.json', 'utf8'));
 validateDEM(dem);
 console.time('Flood preparation');
-// Peak depths come from scripts/prepare-peak.py (2022 modelled d_Max raster).
-const peakBytes = await readFile('scripts/data/tweed-peak-depth.bin');
-const peakDepths = new Float32Array(dem.elevations.length);
-for (let i = 0; i < peakDepths.length; i++) peakDepths[i] = peakBytes.readUInt16LE(i * 2) / 1000;
+// Both the depth and the rendered ground are prepared from the aligned maxima.
+const peakDepths = dem.peakDepths;
+if (!peakDepths || !dem.modelGround) throw new Error('Run prepare-peak.py with both maximum rasters first.');
 const sequence = createPeakAnchoredSequence(dem, peakDepths, { frameCount: 181 });
 console.log(`${sequence.ponded} wet peak cells have no wet path to the river`);
 console.timeEnd('Flood preparation');
@@ -29,7 +28,8 @@ await writeFile('public/data/tweed-flood.json', JSON.stringify({
   start: sequence.start, end: sequence.end, frameCount: sequence.frames.length,
   cellCount: dem.elevations.length, encoding: 'uint16-le-mm',
   compression: 'gzip', uncompressedBytes: bytes.length,
-  source: 'Modelled 2022 peak depth (Tweed_001_2022_d_Max) animated with the approximately traced recorded hydrograph',
-  simulationSeconds: 480
+  source: 'Aligned modelled 2022 maximum depth and height rasters animated with the approximately traced recorded hydrograph',
+  peakFrame: dem.hydrograph.points.reduce((best, point) => point[1] > best[1] ? point : best)[0],
+  interpretation: 'Maximum envelope; interpolated event timing'
 }, null, 2));
 console.log(`Saved ${compressed.length} compressed bytes (${bytes.length} decoded) for ${sequence.frames.length} frames`);
