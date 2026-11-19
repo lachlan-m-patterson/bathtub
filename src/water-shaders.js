@@ -52,6 +52,20 @@ float curvedDepth(vec2 uv) {
   return clamp(value, low, high);
 }
 
+// Display-space colours on the existing continuous 0–6 m depth scale.
+vec3 floodColour(float depth) {
+  vec3 shallow = vec3(220, 239, 234) / 255.0;
+  vec3 lightTeal = vec3(166, 213, 205) / 255.0;
+  vec3 teal = vec3(101, 173, 169) / 255.0;
+  vec3 darkTeal = vec3(39, 122, 128) / 255.0;
+  vec3 deep = vec3(18, 76, 89) / 255.0;
+  float t = clamp(depth / 6.0, 0.0, 1.0) * 4.0;
+  vec3 colour = mix(shallow, lightTeal, min(t, 1.0));
+  colour = mix(colour, teal, clamp(t - 1.0, 0.0, 1.0));
+  colour = mix(colour, darkTeal, clamp(t - 2.0, 0.0, 1.0));
+  return mix(colour, deep, max(t - 3.0, 0.0));
+}
+
 void main() {
   // Trim the piecewise-linear contour with a curved interpolation. The original
   // wet surface remains the outer limit, so smoothing never adds flooded land.
@@ -63,7 +77,7 @@ void main() {
   if (coverage < 0.01) discard;
   float ripple = sin(vPosition.x*.07 + vPosition.y*.05 - time*.7)
                * sin(vPosition.y*.11 - time*.5) * .009;
-  vec3 water = mix(vec3(.30,.43,.39), vec3(.11,.24,.25), clamp(vDepth/6.0,0.0,1.0));
+  vec3 water = floodColour(vDepth);
   float opacity = mix(.52,.94,smoothstep(0.0,3.0,vDepth));
   gl_FragColor = vec4(water + ripple, opacity * coverage);
 }`;

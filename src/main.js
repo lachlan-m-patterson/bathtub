@@ -10,11 +10,11 @@ import './style.css';
 const $ = id => document.getElementById(id);
 const viewport = $('viewport');
 const scene = new THREE.Scene();
-scene.background = new THREE.Color('#e9eee3');
+scene.background = new THREE.Color('#E9EDE4');
 const camera = new THREE.PerspectiveCamera(38, 1, 1, 12000);
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-renderer.setClearColor('#e9eee3');
+renderer.setClearColor('#E9EDE4');
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 viewport.append(renderer.domElement);
 renderer.domElement.setAttribute('aria-label', '3D DEM terrain with a river, levees and flood water');
@@ -91,7 +91,7 @@ async function buildTerrain(nextData, preparedSequence) {
   geometry.rotateX(-Math.PI / 2);
   const positions = geometry.attributes.position;
   const colors = new Float32Array(width * height * 3);
-  const green = new THREE.Color('#91a568'), high = new THREE.Color('#c1c596'), channel = new THREE.Color('#7a9172'), tan = new THREE.Color('#c9b981');
+  const green = new THREE.Color('#A5B198'), high = new THREE.Color('#DADBD0'), channel = new THREE.Color('#397B80'), tan = new THREE.Color('#c9b981');
   const color = new THREE.Color();
   for (let i = 0; i < elevations.length; i++) {
     positions.setY(i, terrainHeight(elevations[i]));
@@ -167,8 +167,11 @@ async function buildTerrain(nextData, preparedSequence) {
   $('timeline').min = floodSequence.start; $('timeline').max = floodSequence.end;
   $('min-label').textContent = data.hydrograph ? formatEventTime(floodSequence.start, false) : `${data.minLevel.toFixed(1)} m`;
   $('max-label').textContent = data.hydrograph ? formatEventTime(floodSequence.end, false) : `${data.maxLevel.toFixed(1)} m`;
-  $('datum-label').textContent = data.hydrograph ? 'mAHD · approximate gauge reading' : 'above model datum';
-  $('scene-description').textContent = data.hydrograph ? 'Murwillumbah · terrain and river bathymetry' : 'A river, two levees, and the land beyond.';
+  $('datum-label').textContent = data.hydrograph ? 'above Australian Height Datum · approximate gauge trace' : 'above model datum';
+  $('scene-title').textContent = data.hydrograph ? '2022 flood reconstruction' : 'River flood explorer';
+  document.querySelector('.aside-top .muted').hidden = !data.hydrograph;
+  $('scene-description').textContent = data.hydrograph ? 'Tweed River at Murwillumbah' : 'A river, two levees, and the land beyond.';
+  document.querySelector('.gauge-card .eyebrow').textContent = data.hydrograph ? 'Gauge level' : 'Water level';
   $('hydrograph-panel').hidden = !data.hydrograph;
   $('survey-note').hidden = !data.source;
   $('survey-note').textContent = data.source ? `${data.source.resolutionMetres ?? 'Unknown'} m source DEM averaged to ${cellSize} m. Negative elevations retained. ${data.verticalDatum ?? 'Vertical datum unspecified.'}` : '';
@@ -290,7 +293,7 @@ async function loadBuildings(fetchData) {
   const matrix = new THREE.Matrix4(), position = new THREE.Vector3(), rotation = new THREE.Quaternion(), size = new THREE.Vector3();
   gltf.scene.traverse(object => {
     if (!object.isMesh) return;
-    object.material = new THREE.MeshStandardMaterial({ color: '#e4ded2', roughness: .9 });
+    object.material = new THREE.MeshStandardMaterial({ color: '#ECE9DF', roughness: .9 });
     object.frustumCulled = false;
     if (!object.isInstancedMesh) return;
     for (let i = 0; i < object.count; i++) {
@@ -345,16 +348,16 @@ function drawHydrograph() {
   ctx.font = '10px sans-serif'; ctx.lineWidth = 1;
   for (const stage of [0, 3, 6]) {
     ctx.strokeStyle = '#dce2d5'; ctx.beginPath(); ctx.moveTo(left, y(stage)); ctx.lineTo(right, y(stage)); ctx.stroke();
-    ctx.fillStyle = '#71816e'; ctx.fillText(String(stage), 6, y(stage) + 3);
+    ctx.fillStyle = '#405454'; ctx.fillText(String(stage), 6, y(stage) + 3);
   }
-  ctx.strokeStyle = '#328c9b'; ctx.lineWidth = 2; ctx.beginPath();
+  ctx.strokeStyle = '#397B80'; ctx.lineWidth = 2; ctx.beginPath();
   data.hydrograph.points.forEach(([hour, stage], index) => {
     if (index === 0) ctx.moveTo(x(hour), y(stage)); else ctx.lineTo(x(hour), y(stage));
   });
   ctx.stroke();
-  ctx.strokeStyle = '#315b48'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x(eventTime), top); ctx.lineTo(x(eventTime), bottom); ctx.stroke();
-  ctx.fillStyle = '#315b48'; ctx.beginPath(); ctx.arc(x(eventTime), y(level), 4, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#71816e'; ctx.fillText(formatEventTime(0, false), left, height - 3); ctx.fillText(formatEventTime(floodSequence.end, false), right - 36, height - 3);
+  ctx.strokeStyle = '#285843'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x(eventTime), top); ctx.lineTo(x(eventTime), bottom); ctx.stroke();
+  ctx.fillStyle = '#285843'; ctx.beginPath(); ctx.arc(x(eventTime), y(level), 4, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#405454'; ctx.fillText(formatEventTime(0, false), left, height - 3); ctx.fillText(formatEventTime(floodSequence.end, false), right - 36, height - 3);
   canvas.setAttribute('aria-label', `Approximate recorded gauge hydrograph. ${formatEventTime(eventTime)}, ${level.toFixed(2)} metres AHD.`);
 }
 function setTime(value) {
