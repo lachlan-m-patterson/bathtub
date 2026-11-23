@@ -1,11 +1,11 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="theme-color" content="#E9EDE4"><title>2022 flood reconstruction · Tweed Valley atlas</title></head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="theme-color" content="#E9EDE4"><title>2022 flood reconstruction</title></head>
 <body>
   <div id="app">
     <main>
       <section class="scene-panel" aria-label="Interactive 3D river landscape">
-        <div class="scene-heading"><p class="eyebrow">Tweed Valley atlas</p><h1 id="scene-title">2022 flood reconstruction</h1><p id="scene-description">Tweed River at Murwillumbah</p></div>
+        <div class="scene-heading"><h1 id="scene-title">2022 flood reconstruction</h1><p id="scene-description">Tweed River at Murwillumbah</p></div>
         <div id="viewport"></div>
         <div id="loading-message" role="status">Loading terrain and flood event…</div>
         <details class="scene-tools"><summary>Map tools</summary><div class="tool-list"><button id="imagery-toggle" aria-pressed="true">Aerial imagery</button><button id="buildings-toggle" aria-pressed="true" hidden>Buildings</button><button id="smooth-toggle" aria-pressed="true">Smooth edges</button><button id="reset-view">Reset view ↗</button><button id="top-view">Top view ↓</button></div></details>
@@ -22,7 +22,7 @@
         <div class="metrics"><div><span id="area">0.00</span><small>ha inundated</small></div><div><span id="depth">0.00</span><small>m max depth above ground</small></div></div>
         <p id="survey-note" class="survey-note"></p>
         <details><summary>About this model <span>＋</span></summary><p>The maximum flood envelope comes from the supplied 2022 d_Max and h_Max rasters, aligned from GDA94 to the GDA2020 terrain grid. Ground inside the wet extent is h_Max minus d_Max, which preserves both modelled depth and water elevation. The original survey DEM is retained outside that extent.</p><p>Each cell's maximum may occur at a different time. The envelope is shown at the gauge peak for comparison. Timing before and after it is interpolated from the approximate gauge trace. Floodgate and pump drainage is not represented. Terrain is shown at 4 m resolution with 1.5× vertical relief.</p></details>
-        <div class="data-actions"><button id="export-dem">↓ Export DEM</button><label class="button" for="import-dem">↑ Load DEM<input type="file" id="import-dem" accept=".json,application/json"></label></div><p id="data-message" role="status">Loading terrain and flood event…</p>
+        <p id="data-message" role="status">Loading terrain and flood event…</p>
       </aside>
       <section class="timeline" aria-label="Flood timeline"><div class="timeline-title"><div><p class="eyebrow">Event timeline</p><h2 id="event-time">24 Feb, 00:00</h2></div><button id="restart" title="Restart flood">↺ Restart</button></div><div class="timeline-controls"><button id="play" class="play" aria-label="Play flood animation">▶</button><div class="track"><label class="sr-only" for="timeline">Flood event date and time</label><input id="timeline" type="range" min="1" max="8" step="0.01" value="2"><div class="track-labels"><span id="min-label">1.0 m · Low flow</span><button id="west-jump">West overtops · 4.2 m</button><button id="east-jump">East overtops · 6.1 m</button><span id="max-label">8.0 m</span></div></div><label class="speed-label">Speed<select id="speed" aria-label="Playback speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select></label></div></section>
     </main>

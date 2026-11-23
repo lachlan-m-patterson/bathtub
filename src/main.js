@@ -399,25 +399,6 @@ $('restart').addEventListener('click', () => { setPlaying(false); setTime(floodS
 $('reset-view').addEventListener('click', resetView);
 $('top-view').addEventListener('click', () => { camera.position.set(0, extent * 1.8, 1); controls.target.set(0, 0, 0); controls.update(); });
 ['west', 'east'].forEach((side, index) => $(`${side}-jump`).addEventListener('click', () => { setPlaying(false); setTime(timelineStops[index]); }));
-$('export-dem').addEventListener('click', () => {
-  const url = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
-  const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'river-dem.json'; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-});
-$('import-dem').addEventListener('change', async event => {
-  const file = event.target.files[0]; if (!file) return;
-  event.target.disabled = true;
-  try {
-    if (file.size > 20 * 1024 * 1024) throw new Error('Use a DEM JSON file smaller than 20 MB.');
-    const imported = validateDEM(JSON.parse(await file.text()));
-    imported.synthetic = false;
-    await buildTerrain(imported);
-  } catch (error) {
-    $('data-message').textContent = `Could not load DEM. ${error.message}`;
-    $('loading-message').hidden = true;
-  }
-  event.target.disabled = false;
-  event.target.value = '';
-});
 new ResizeObserver(() => {
   const { width, height } = viewport.getBoundingClientRect();
   renderer.setSize(width, height); camera.aspect = width / height; camera.updateProjectionMatrix();
@@ -459,7 +440,7 @@ try {
 renderer.setAnimationLoop(time => {
   const delta = Math.min((time - lastTime) / 1000, .1); lastTime = time;
   if (playing) {
-    setTime(eventTime + delta * Number($('speed').value) * (floodSequence.end - floodSequence.start) / (data.hydrograph ? 90 : 40));
+    setTime(eventTime + delta * Number($('speed').value) * (floodSequence.end - floodSequence.start) / (data.hydrograph ? 45 : 20));
     if (eventTime >= floodSequence.end) setPlaying(false);
   }
   waterMaterial.uniforms.time.value = time / 1000; controls.update();

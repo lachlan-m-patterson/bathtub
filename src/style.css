@@ -12,8 +12,8 @@
 * { box-sizing: border-box; }
 body, p, h1, h2 { margin: 0; }
 [hidden] { display: none !important; }
-button, input, select, .button, summary { font: inherit; }
-button, select, .button, .scene-tools summary {
+button, input, select, summary { font: inherit; }
+button, select, .scene-tools summary {
   padding: 8px 12px;
   border: 1px solid var(--line);
   border-radius: 5px;
@@ -22,8 +22,8 @@ button, select, .button, .scene-tools summary {
   font-size: 14px;
   cursor: pointer;
 }
-button:hover, .button:hover, select:hover, .scene-tools summary:hover { background: var(--surround); }
-:focus-visible, .button:focus-within { outline: 3px solid var(--river); outline-offset: 2px; }
+button:hover, select:hover, .scene-tools summary:hover { background: var(--surround); }
+:focus-visible { outline: 3px solid var(--river); outline-offset: 2px; }
 button:disabled, input:disabled, select:disabled { opacity: .55; cursor: wait; }
 main { height: 100dvh; min-height: 540px; display: grid; grid-template-columns: minmax(0,1fr) clamp(300px,28vw,390px); grid-template-rows: minmax(0,1fr) auto; }
 .scene-panel { position: relative; overflow: hidden; background: var(--surround); }
@@ -74,11 +74,10 @@ h2 { font-size: 22px; line-height: 1.2; }
 .basin > div, .basin p, .metrics { display: flex; justify-content: space-between; gap: 12px; }
 .metrics > div { flex: 1; display: grid; }
 .metrics span { font-size: 26px; font-variant-numeric: tabular-nums; }
-.survey-note, .data-actions, #data-message, aside details p { margin-top: 12px; }
+.survey-note, #data-message, aside details p { margin-top: 12px; }
 aside summary { cursor: pointer; }
 aside summary span { display: none; }
-.data-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.sr-only, .data-actions input { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); overflow: hidden; }
+.sr-only { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); overflow: hidden; }
 .timeline { grid-column: 1/-1; border-top: 1px solid var(--line); padding: 14px 22px; }
 .timeline-title, .timeline-controls, .track-labels { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .timeline-controls { margin-top: 8px; }

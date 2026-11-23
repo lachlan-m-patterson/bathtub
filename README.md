@@ -1,6 +1,6 @@
 # Bathtub
 
-An embeddable Three.js view of the Tweed River at Murwillumbah, using the supplied terrain and bathymetry DEM and an approximate trace of the recorded 2022 gauge hydrograph. Play or scrub 24 February through 3 March, including rising water, gradual spill and recession. Playback takes 90 seconds at 1×.
+An embeddable Three.js view of the Tweed River at Murwillumbah, using the supplied terrain and bathymetry DEM and an approximate trace of the recorded 2022 gauge hydrograph. Play or scrub 24 February through 3 March, including rising water, gradual spill and recession. Playback takes 45 seconds at 1×.
 
 The gauge trace is manually approximated from the supplied Figure C1 image, with a peak around 6.23 mAHD. It is not a downloaded gauge dataset. The TIFF does not identify its vertical datum, so alignment to AHD is assumed and disclosed in the app. Flood extent and timing remain illustrative and uncalibrated.
 
@@ -69,7 +69,7 @@ npm run build
 
 ## Import and export
 
-Export DEM downloads the current terrain, validity mask, source metadata and hydrograph as JSON. Load DEM validates this format and computes a replacement event in a Web Worker. The original synthetic generator remains in `src/model.js` for tests and alternative examples.
+The original synthetic generator remains in `src/model.js` for tests and alternative examples.
 
 | Field | Meaning |
 | --- | --- |
